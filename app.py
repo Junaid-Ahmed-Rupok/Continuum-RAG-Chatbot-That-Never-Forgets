@@ -114,30 +114,49 @@ class Memory:
     def _load(self):
         if self.file_path.exists():
             try:
-                return json.loads(self.file_path.read_text())
+                loaded = json.loads(self.file_path.read_text())
+                # Ensure required keys exist
+                if "facts" not in loaded:
+                    loaded["facts"] = {}
+                if "conversations" not in loaded:
+                    loaded["conversations"] = []
+                return loaded
             except:
                 return {"facts": {}, "conversations": []}
         return {"facts": {}, "conversations": []}
     
     def _save(self):
-        self.file_path.write_text(json.dumps(self.data, indent=2))
+        try:
+            self.file_path.write_text(json.dumps(self.data, indent=2))
+        except:
+            pass
     
     def add_fact(self, key, value):
+        if not hasattr(self, 'data') or self.data is None:
+            self.data = {"facts": {}, "conversations": []}
         self.data["facts"][key] = value
         self._save()
     
     def get_fact(self, key):
+        if not hasattr(self, 'data') or self.data is None:
+            return None
         return self.data["facts"].get(key)
     
     def get_all_facts(self):
+        if not hasattr(self, 'data') or self.data is None:
+            return {}
         return self.data["facts"]
     
     def delete_fact(self, key):
+        if not hasattr(self, 'data') or self.data is None:
+            return
         if key in self.data["facts"]:
             del self.data["facts"][key]
             self._save()
     
     def add_conversation(self, user_msg, bot_msg):
+        if not hasattr(self, 'data') or self.data is None:
+            self.data = {"facts": {}, "conversations": []}
         self.data["conversations"].append({
             "user": user_msg,
             "bot": bot_msg,
@@ -148,7 +167,9 @@ class Memory:
         self._save()
     
     def count(self):
-        return len(self.data["facts"])
+        if not hasattr(self, 'data') or self.data is None:
+            return 0
+        return len(self.data.get("facts", {}))
 
 if "memory" not in st.session_state:
     st.session_state.memory = Memory()
@@ -216,7 +237,7 @@ def extract_and_store_facts(text, memory):
     job_patterns = [
         r"i (?:work as|am a|am an) (\w+)",
         r"my job is (\w+)",
-        r"i(?:'m| am) (?:a|an) (\w+)(?: engineer|developer|designer|manager|teacher|doctor|lawyer|writer|artist|designer)"
+        r"i(?:'m| am) (?:a|an) (\w+)"
     ]
     for pattern in job_patterns:
         match = re.search(pattern, lower)
