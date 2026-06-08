@@ -1,355 +1,577 @@
+"""
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                              CONTINUUM RAG - PROFESSIONAL EDITION                     ║
+║                         Persistent Memory Chatbot · No API Keys · Free                 ║
+║                                                                                       ║
+║  Senior Developer & Designer Implementation                                          ║
+║  - Production-grade code with error handling, logging, and performance optimization  ║
+║  - Enterprise UI/UX with dark theme, animations, and responsive design               ║
+║  - Memory system with Ebbinghaus decay, reinforcement learning, and export features  ║
+║                                                                                       ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+"""
+
 import streamlit as st
 import time
 import json
 import math
 import re
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from datetime import datetime
 import hashlib
+import logging
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass, field
+from collections import deque
+from datetime import datetime
+from enum import Enum
 
 import numpy as np
+import pandas as pd
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
-import pandas as pd
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ============================================================================
-# PAGE CONFIGURATION
+# LOGGING CONFIGURATION
 # ============================================================================
 
-st.set_page_config(
-    page_title="Continuum RAG - Persistent Memory Chatbot",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
 
 # ============================================================================
-# CUSTOM CSS - Professional Dark Theme
+# CONSTANTS & CONFIGURATION
 # ============================================================================
 
-st.markdown("""
+class MemoryStrength(Enum):
+    """Memory strength levels for UI visualization"""
+    STRONG = (0.7, "#22c55e")      # Green
+    MODERATE = (0.4, "#eab308")    # Yellow
+    WEAK = (0.0, "#ef4444")        # Red
+
+@dataclass
+class AppConfig:
+    """Centralized application configuration"""
+    # Model settings
+    embed_model: str = "all-MiniLM-L6-v2"
+    llm_model: str = "google/flan-t5-large"
+    
+    # Memory settings
+    max_tokens: int = 512
+    temperature: float = 0.7
+    top_k: int = 5
+    min_strength: float = 0.05
+    decay_lambda: float = 0.1
+    reinforcement_boost: float = 0.3
+    
+    # UI settings
+    max_conversation_turns: int = 20
+    max_display_facts: int = 5
+    typing_indicator_delay: float = 0.05
+    
+    # Storage
+    chroma_collection: str = "continuum_memory_v2"
+    data_dir: str = "./continuum_data"
+    
+    @property
+    def chroma_path(self) -> Path:
+        return Path(self.data_dir) / "chromadb"
+    
+    @property
+    def export_path(self) -> Path:
+        return Path(self.data_dir) / "exports"
+    
+    @property
+    def logs_path(self) -> Path:
+        return Path(self.data_dir) / "logs"
+
+# Global config instance
+CONFIG = AppConfig()
+
+# Create directories
+for path in [CONFIG.chroma_path, CONFIG.export_path, CONFIG.logs_path]:
+    path.mkdir(parents=True, exist_ok=True)
+
+# ============================================================================
+# CUSTOM CSS - PROFESSIONAL DARK THEME
+# ============================================================================
+
+CUSTOM_CSS = """
 <style>
-    /* Main background */
+    /* ========== ROOT VARIABLES ========== */
+    :root {
+        --primary: #7c3aed;
+        --primary-dark: #6d28d9;
+        --primary-light: #a78bfa;
+        --secondary: #ec4899;
+        --background: #0f0f13;
+        --surface: #1a1a24;
+        --surface-hover: #22222e;
+        --border: #2a2a35;
+        --text: #e2e2e8;
+        --text-muted: #a1a1b0;
+        --success: #22c55e;
+        --warning: #eab308;
+        --error: #ef4444;
+        --info: #3b82f6;
+    }
+    
+    /* ========== GLOBAL ========== */
     .stApp {
-        background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+        background: linear-gradient(135deg, var(--background) 0%, #0a0a0f 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     
-    /* Header styling */
-    .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 1rem;
-        margin-bottom: 1.5rem;
-        text-align: center;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    
-    .main-header h1 {
-        color: white;
-        margin: 0;
-        font-size: 2.5rem;
-        font-weight: 700;
-    }
-    
-    .main-header p {
-        color: rgba(255,255,255,0.9);
-        margin: 0.5rem 0 0 0;
-        font-size: 1rem;
-    }
-    
-    /* Sidebar styling */
+    /* ========== SIDEBAR ========== */
     [data-testid="stSidebar"] {
-        background: rgba(10, 10, 20, 0.95);
-        border-right: 1px solid rgba(102, 126, 234, 0.3);
+        background: rgba(26, 26, 36, 0.95);
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(124, 58, 237, 0.2);
     }
     
     [data-testid="stSidebar"] .stMarkdown {
-        color: #e0e0e0;
+        color: var(--text);
     }
     
-    /* Chat message styling */
-    [data-testid="stChatMessage"] {
-        background: rgba(255, 255, 255, 0.05);
+    /* ========== HEADER ========== */
+    .continuum-header {
+        background: linear-gradient(135deg, var(--primary-dark), var(--primary));
         border-radius: 1rem;
-        padding: 1rem;
-        margin-bottom: 0.5rem;
-        border: 1px solid rgba(102, 126, 234, 0.2);
+        padding: 1.5rem 2rem;
+        margin-bottom: 2rem;
+        text-align: center;
+        animation: fadeInDown 0.6s ease-out;
+        box-shadow: 0 10px 30px -10px rgba(124, 58, 237, 0.3);
+    }
+    
+    .continuum-header h1 {
+        color: white;
+        margin: 0;
+        font-size: 2.2rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+    }
+    
+    .continuum-header p {
+        color: rgba(255, 255, 255, 0.85);
+        margin: 0.5rem 0 0 0;
+        font-size: 0.9rem;
+    }
+    
+    /* ========== CHAT MESSAGES ========== */
+    [data-testid="stChatMessage"] {
+        border-radius: 1rem;
+        margin-bottom: 0.75rem;
+        animation: fadeInUp 0.4s ease-out;
+        transition: all 0.2s ease;
     }
     
     [data-testid="stChatMessage"]:hover {
-        border-color: rgba(102, 126, 234, 0.5);
-        transition: all 0.3s ease;
+        transform: translateX(4px);
     }
     
-    /* User message specific */
     [data-testid="stChatMessage"][data-testid="user"] {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(236, 72, 153, 0.05));
+        border: 1px solid rgba(124, 58, 237, 0.2);
     }
     
-    /* Input box styling */
+    [data-testid="stChatMessage"][data-testid="assistant"] {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* ========== INPUT AREA ========== */
     [data-testid="stChatInputTextArea"] {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(102, 126, 234, 0.3);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 0.75rem;
-        color: white;
+        color: var(--text);
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
     }
     
     [data-testid="stChatInputTextArea"]:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
     }
     
-    /* Button styling */
+    /* ========== BUTTONS ========== */
     .stButton button {
-        background: linear-gradient(135deg, #667eea, #764ba2);
+        background: linear-gradient(135deg, var(--primary-dark), var(--primary));
         color: white;
         border: none;
         border-radius: 0.5rem;
         padding: 0.5rem 1rem;
         font-weight: 500;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
     }
     
     .stButton button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        box-shadow: 0 5px 15px rgba(124, 58, 237, 0.3);
     }
     
-    /* Metric cards */
+    .stButton button:active {
+        transform: translateY(0);
+    }
+    
+    /* Danger buttons */
+    .stButton button[kind="secondary"] {
+        background: linear-gradient(135deg, #dc2626, #b91c1c);
+    }
+    
+    /* ========== METRICS ========== */
     [data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(102, 126, 234, 0.2);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 0.75rem;
-        padding: 0.75rem;
+        padding: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        border-color: var(--primary);
+        transform: translateY(-2px);
     }
     
     [data-testid="stMetric"] label {
-        color: #a0a0a0;
+        color: var(--text-muted);
     }
     
     [data-testid="stMetric"] value {
-        color: #667eea;
+        color: var(--primary-light);
         font-weight: bold;
     }
     
-    /* Status messages */
-    .stAlert {
-        border-radius: 0.75rem;
-        border-left: 4px solid #667eea;
-    }
-    
-    /* Expander styling */
+    /* ========== EXPANDER ========== */
     .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.03);
+        background: var(--surface);
         border-radius: 0.5rem;
-        color: #e0e0e0;
+        color: var(--text);
+        font-weight: 500;
     }
     
-    /* Divider */
+    .streamlit-expanderHeader:hover {
+        background: var(--surface-hover);
+    }
+    
+    /* ========== PROGRESS BAR ========== */
+    .stProgress > div > div > div > div {
+        background-color: var(--primary);
+    }
+    
+    /* ========== STATUS & ALERTS ========== */
+    .stAlert {
+        border-radius: 0.5rem;
+        border-left: 4px solid var(--primary);
+    }
+    
+    /* ========== ANIMATIONS ========== */
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .typing-indicator {
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        background: var(--surface);
+        border-radius: 1rem;
+        width: fit-content;
+    }
+    
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        background: var(--primary-light);
+        border-radius: 50%;
+        animation: pulse 1.4s ease-in-out infinite;
+    }
+    
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    
+    /* ========== MEMORY CARD ========== */
+    .memory-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    
+    .memory-card:hover {
+        border-color: var(--primary);
+        transform: translateX(4px);
+    }
+    
+    .memory-strength-bar {
+        height: 4px;
+        border-radius: 2px;
+        margin-top: 0.5rem;
+        transition: width 0.3s ease;
+    }
+    
+    /* ========== DIVIDER ========== */
     hr {
-        border-color: rgba(102, 126, 234, 0.3);
+        border-color: var(--border);
         margin: 1rem 0;
     }
     
-    /* Scrollbar */
+    /* ========== SCROLLBAR ========== */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--surface);
         border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb {
-        background: #667eea;
+        background: var(--primary-dark);
         border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: #764ba2;
+        background: var(--primary);
     }
     
-    /* Hide Streamlit branding */
+    /* ========== HIDE BRANDING ========== */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Info panel */
-    .info-panel {
-        background: rgba(102, 126, 234, 0.1);
-        border: 1px solid rgba(102, 126, 234, 0.2);
-        border-radius: 0.75rem;
-        padding: 0.75rem;
-        margin-top: 1rem;
+    /* ========== STATUS BADGES ========== */
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        font-weight: 500;
     }
     
-    /* Typing indicator */
-    .typing-indicator {
-        background: rgba(102, 126, 234, 0.2);
-        border-radius: 1rem;
-        padding: 0.5rem 1rem;
-        display: inline-block;
-        font-size: 0.85rem;
-        color: #a0a0a0;
+    .badge-success { background: var(--success); color: white; }
+    .badge-warning { background: var(--warning); color: black; }
+    .badge-info { background: var(--info); color: white; }
+    
+    /* ========== RESPONSIVE ========== */
+    @media (max-width: 768px) {
+        .continuum-header h1 { font-size: 1.5rem; }
+        .continuum-header { padding: 1rem; }
     }
 </style>
-""", unsafe_allow_html=True)
+"""
 
 # ============================================================================
-# CONFIGURATION
+# MEMORY METADATA
 # ============================================================================
 
 @dataclass
-class AppConfig:
-    """Application configuration"""
-    max_tokens: int = 512
-    temperature: float = 0.7
-    embed_model: str = "all-MiniLM-L6-v2"
-    llm_model: str = "google/flan-t5-large"
-    chroma_collection: str = "continuum_memory"
-    top_k: int = 5
-    retention_days: int = 30
-    max_memory_size_mb: int = 100
-    enable_fact_extraction: bool = True
-    enable_decay: bool = True
-    decay_rate: float = 0.1
-
-# ============================================================================
-# PATHS AND STORAGE
-# ============================================================================
-
-class StoragePaths:
-    """Centralized path management"""
+class MemoryEntry:
+    """Rich memory entry with metadata"""
+    id: str
+    text: str
+    strength: float
+    created_at: float
+    last_accessed: float
+    access_count: int
+    source: str
+    tags: List[str] = field(default_factory=list)
     
-    def __init__(self):
-        self.base_path = Path("./continuum_data")
-        self.chroma_path = self.base_path / "chromadb"
-        self.memories_path = self.base_path / "memories"
-        self.export_path = self.base_path / "exports"
-        self.logs_path = self.base_path / "logs"
-        self.config_path = self.base_path / "config"
-        
-        for path in [self.base_path, self.chroma_path, self.memories_path, 
-                     self.export_path, self.logs_path, self.config_path]:
-            path.mkdir(parents=True, exist_ok=True)
+    @property
+    def strength_category(self) -> Tuple[str, str]:
+        if self.strength >= 0.7:
+            return "Strong", "#22c55e"
+        elif self.strength >= 0.4:
+            return "Moderate", "#eab308"
+        return "Weak", "#ef4444"
     
-    def get_memory_file(self, memory_id: str) -> Path:
-        return self.memories_path / f"{memory_id}.json"
-    
-    def get_export_file(self) -> Path:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return self.export_path / f"continuum_export_{timestamp}.json"
-
-paths = StoragePaths()
-
-# ============================================================================
-# MEMORY MANAGEMENT SYSTEM
-# ============================================================================
-
-class MemoryMetadata:
-    """Metadata for each memory entry"""
-    
-    def __init__(self, text: str, source: str = "conversation"):
-        self.id = hashlib.md5(f"{text}{time.time()}".encode()).hexdigest()[:16]
-        self.text = text
-        self.source = source
-        self.created_at = time.time()
-        self.last_accessed = time.time()
-        self.access_count = 0
-        self.strength = 1.0
-        self.importance_score = 0.5
-        self.tags = self._extract_tags(text)
-    
-    def _extract_tags(self, text: str) -> List[str]:
-        """Extract simple tags from text"""
-        tags = []
-        keywords = ["name", "work", "live", "like", "love", "from", "job", "home"]
-        for keyword in keywords:
-            if keyword in text.lower():
-                tags.append(keyword)
-        return tags
+    @property
+    def age_days(self) -> float:
+        return (time.time() - self.created_at) / 86400
     
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "text": self.text,
-            "source": self.source,
+            "strength": self.strength,
             "created_at": self.created_at,
             "last_accessed": self.last_accessed,
             "access_count": self.access_count,
-            "strength": self.strength,
-            "importance_score": self.importance_score,
+            "source": self.source,
             "tags": self.tags
         }
 
-class AdvancedMemorySystem:
-    """Sophisticated memory management with decay and reinforcement"""
+# ============================================================================
+# MEMORY SYSTEM - CORE
+# ============================================================================
+
+class ContinuumMemory:
+    """
+    Professional-grade memory system with:
+    - Vector-based semantic search
+    - Ebbinghaus forgetting curve
+    - Reinforcement learning on access
+    - Metadata enrichment
+    """
     
-    def __init__(self, config: AppConfig):
-        self.config = config
-        self.embedder = SentenceTransformer(config.embed_model, device="cpu")
-        self.client = chromadb.PersistentClient(path=str(paths.chroma_path))
-        
-        try:
-            self.collection = self.client.get_collection(config.chroma_collection)
-        except:
-            self.collection = self.client.create_collection(
-                name=config.chroma_collection,
-                metadata={"hnsw:space": "cosine", "construction_ef": 200, "M": 64}
-            )
-        
-        self.memory_metadata: Dict[str, MemoryMetadata] = {}
+    def __init__(self):
+        self.config = CONFIG
+        self._initialize_embedder()
+        self._initialize_chromadb()
         self._load_metadata()
+    
+    def _initialize_embedder(self):
+        """Initialize sentence transformer with error handling"""
+        with st.spinner("🧠 Loading memory engine..."):
+            try:
+                self.embedder = SentenceTransformer(
+                    self.config.embed_model,
+                    device="cpu",
+                    cache_folder=str(self.config.chroma_path / "models")
+                )
+                logger.info(f"Embedder initialized: {self.config.embed_model}")
+            except Exception as e:
+                logger.error(f"Failed to load embedder: {e}")
+                st.error("Failed to initialize memory system. Please refresh.")
+                raise
+    
+    def _initialize_chromadb(self):
+        """Initialize ChromaDB with persistent storage"""
+        try:
+            self.client = chromadb.PersistentClient(
+                path=str(self.config.chroma_path),
+                settings=Settings(anonymized_telemetry=False)
+            )
+            
+            try:
+                self.collection = self.client.get_collection(self.config.chroma_collection)
+                logger.info(f"Loaded existing collection: {self.collection.count()} memories")
+            except:
+                self.collection = self.client.create_collection(
+                    name=self.config.chroma_collection,
+                    metadata={"hnsw:space": "cosine", "construction_ef": 200}
+                )
+                logger.info("Created new memory collection")
+        except Exception as e:
+            logger.error(f"ChromaDB initialization failed: {e}")
+            st.error("Memory storage initialization failed.")
+            raise
     
     def _load_metadata(self):
         """Load memory metadata from disk"""
-        metadata_file = paths.config_path / "memory_metadata.json"
-        if metadata_file.exists():
+        self.memories: Dict[str, MemoryEntry] = {}
+        metadata_path = self.config.chroma_path / "metadata.json"
+        
+        if metadata_path.exists():
             try:
-                data = json.loads(metadata_file.read_text())
+                data = json.loads(metadata_path.read_text())
                 for mem_id, mem_data in data.items():
-                    meta = MemoryMetadata("", "")
-                    meta.__dict__.update(mem_data)
-                    self.memory_metadata[mem_id] = meta
+                    entry = MemoryEntry(
+                        id=mem_id,
+                        text=mem_data["text"],
+                        strength=mem_data["strength"],
+                        created_at=mem_data["created_at"],
+                        last_accessed=mem_data["last_accessed"],
+                        access_count=mem_data["access_count"],
+                        source=mem_data.get("source", "conversation"),
+                        tags=mem_data.get("tags", [])
+                    )
+                    self.memories[mem_id] = entry
+                logger.info(f"Loaded {len(self.memories)} memory metadata entries")
             except Exception as e:
-                st.warning(f"Could not load metadata: {e}")
+                logger.warning(f"Could not load metadata: {e}")
     
     def _save_metadata(self):
         """Save memory metadata to disk"""
-        metadata_file = paths.config_path / "memory_metadata.json"
-        data = {mid: meta.to_dict() for mid, meta in self.memory_metadata.items()}
-        metadata_file.write_text(json.dumps(data, indent=2))
+        metadata_path = self.config.chroma_path / "metadata.json"
+        data = {mem_id: entry.to_dict() for mem_id, entry in self.memories.items()}
+        metadata_path.write_text(json.dumps(data, indent=2))
     
-    def add_memory(self, text: str, source: str = "conversation") -> str:
-        """Add a new memory with full metadata"""
-        metadata = MemoryMetadata(text, source)
+    def _generate_id(self, text: str) -> str:
+        """Generate unique memory ID"""
+        timestamp = int(time.time() * 1000)
+        hash_val = hashlib.md5(text.encode()).hexdigest()[:8]
+        return f"mem_{timestamp}_{hash_val}"
+    
+    def add(self, text: str, source: str = "conversation", tags: List[str] = None) -> str:
+        """Add a new memory to the system"""
+        if not text or len(text.strip()) < 5:
+            return ""
+        
+        memory_id = self._generate_id(text)
         embedding = self.embedder.encode(text).tolist()
         
+        # Create metadata
+        now = time.time()
+        metadata = {
+            "timestamp": now,
+            "strength": 1.0,
+            "source": source,
+            "access_count": 0
+        }
+        
+        # Add to ChromaDB
         try:
             self.collection.add(
-                ids=[metadata.id],
+                ids=[memory_id],
                 embeddings=[embedding],
                 documents=[text],
-                metadatas=[{
-                    "created_at": metadata.created_at,
-                    "source": source,
-                    "strength": metadata.strength
-                }]
+                metadatas=[metadata]
             )
-            self.memory_metadata[metadata.id] = metadata
+            
+            # Create memory entry
+            entry = MemoryEntry(
+                id=memory_id,
+                text=text,
+                strength=1.0,
+                created_at=now,
+                last_accessed=now,
+                access_count=0,
+                source=source,
+                tags=tags or []
+            )
+            self.memories[memory_id] = entry
             self._save_metadata()
-            return metadata.id
+            
+            logger.info(f"Memory added: {text[:50]}...")
+            return memory_id
         except Exception as e:
-            st.error(f"Failed to add memory: {e}")
+            logger.error(f"Failed to add memory: {e}")
             return ""
     
-    def retrieve(self, query: str, top_k: int = None) -> List[Dict[str, Any]]:
-        """Retrieve relevant memories with metadata"""
+    def retrieve(self, query: str, top_k: int = None) -> List[MemoryEntry]:
+        """Retrieve relevant memories with strength filtering"""
         if self.collection.count() == 0:
             return []
         
@@ -363,125 +585,128 @@ class AdvancedMemorySystem:
                 include=["documents", "metadatas", "distances"]
             )
         except Exception as e:
-            st.error(f"Retrieval failed: {e}")
+            logger.error(f"Retrieval failed: {e}")
             return []
         
-        memories = []
-        for doc_id, doc, meta, dist in zip(
-            results["ids"][0], results["documents"][0],
-            results["metadatas"][0], results["distances"][0]
+        retrieved = []
+        if not results["ids"] or not results["ids"][0]:
+            return []
+        
+        for mem_id, doc, meta, dist in zip(
+            results["ids"][0],
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0]
         ):
             similarity = 1.0 - dist
-            metadata = self.memory_metadata.get(doc_id)
+            strength = float(meta.get("strength", 0.0))
             
-            memories.append({
-                "id": doc_id,
-                "text": doc,
-                "similarity": similarity,
-                "strength": metadata.strength if metadata else 0.5,
-                "access_count": metadata.access_count if metadata else 0,
-                "created_at": metadata.created_at if metadata else time.time()
-            })
-            
-            # Update access metrics
-            if metadata:
-                metadata.last_accessed = time.time()
-                metadata.access_count += 1
-                metadata.strength = min(1.0, metadata.strength + 0.05)
-                self._save_metadata()
+            if strength >= self.config.min_strength:
+                # Update access metrics
+                if mem_id in self.memories:
+                    self.memories[mem_id].last_accessed = time.time()
+                    self.memories[mem_id].access_count += 1
+                    self.memories[mem_id].strength = min(1.0, strength + self.config.reinforcement_boost)
+                
+                entry = self.memories.get(mem_id)
+                if entry:
+                    retrieved.append(entry)
+                
+                if len(retrieved) >= top_k:
+                    break
         
-        # Sort by relevance and strength
-        memories.sort(key=lambda x: (x["similarity"], x["strength"]), reverse=True)
-        return memories[:top_k]
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get detailed memory statistics"""
-        total = self.collection.count()
-        if total == 0:
-            return {"total": 0, "avg_strength": 0, "active": 0, "size_kb": 0}
-        
-        strengths = [meta.strength for meta in self.memory_metadata.values()]
-        avg_strength = np.mean(strengths) if strengths else 0
-        
-        # Calculate storage size
-        size_bytes = sum(f.stat().st_size for f in paths.chroma_path.rglob("*") if f.is_file())
-        size_kb = size_bytes / 1024
-        
-        return {
-            "total": total,
-            "avg_strength": round(avg_strength, 3),
-            "active": sum(1 for s in strengths if s > 0.3),
-            "size_kb": round(size_kb, 2),
-            "unique_tags": len(set(tag for meta in self.memory_metadata.values() for tag in meta.tags))
-        }
-    
-    def get_top_memories(self, n: int = 10) -> List[Dict]:
-        """Get top memories by strength and access count"""
-        if not self.memory_metadata:
-            return []
-        
-        sorted_memories = sorted(
-            self.memory_metadata.values(),
-            key=lambda x: (x.strength, x.access_count),
-            reverse=True
-        )
-        
-        return [{"text": m.text[:80], "strength": m.strength, "access_count": m.access_count} 
-                for m in sorted_memories[:n]]
+        self._save_metadata()
+        return retrieved
     
     def apply_decay(self):
-        """Apply memory decay based on time and access frequency"""
-        if not self.config.enable_decay:
-            return
-        
-        current_time = time.time()
+        """Apply Ebbinghaus forgetting curve"""
+        now = time.time()
         decayed_count = 0
         
-        for mem_id, metadata in list(self.memory_metadata.items()):
-            days_since_access = (current_time - metadata.last_accessed) / 86400
-            decay_factor = math.exp(-self.config.decay_rate * days_since_access)
-            metadata.strength *= decay_factor
+        for mem_id, entry in list(self.memories.items()):
+            days_since_access = (now - entry.last_accessed) / 86400
+            decay_factor = math.exp(-self.config.decay_lambda * days_since_access)
+            new_strength = entry.strength * decay_factor
             
-            if metadata.strength < 0.05:
-                # Remove weak memories
+            if new_strength < self.config.min_strength:
+                # Prune weak memory
                 try:
                     self.collection.delete(ids=[mem_id])
-                    del self.memory_metadata[mem_id]
+                    del self.memories[mem_id]
                     decayed_count += 1
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to prune {mem_id}: {e}")
+            else:
+                entry.strength = new_strength
         
         if decayed_count > 0:
             self._save_metadata()
+            logger.info(f"Decay applied: {decayed_count} memories pruned")
     
-    def export_all(self) -> Path:
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive memory statistics"""
+        total = len(self.memories)
+        if total == 0:
+            return {
+                "total": 0,
+                "avg_strength": 0,
+                "strong": 0,
+                "moderate": 0,
+                "weak": 0,
+                "total_accesses": 0,
+                "unique_tags": 0
+            }
+        
+        strengths = [m.strength for m in self.memories.values()]
+        tags = set()
+        total_accesses = 0
+        
+        for m in self.memories.values():
+            tags.update(m.tags)
+            total_accesses += m.access_count
+        
+        strong = sum(1 for s in strengths if s >= 0.7)
+        moderate = sum(1 for s in strengths if 0.4 <= s < 0.7)
+        weak = sum(1 for s in strengths if s < 0.4)
+        
+        return {
+            "total": total,
+            "avg_strength": round(np.mean(strengths), 3),
+            "strong": strong,
+            "moderate": moderate,
+            "weak": weak,
+            "total_accesses": total_accesses,
+            "unique_tags": len(tags)
+        }
+    
+    def get_top_memories(self, limit: int = 5) -> List[MemoryEntry]:
+        """Get strongest memories"""
+        sorted_memories = sorted(
+            self.memories.values(),
+            key=lambda x: (x.strength, x.access_count),
+            reverse=True
+        )
+        return sorted_memories[:limit]
+    
+    def export(self) -> Path:
         """Export all memories to JSON"""
         export_data = {
             "export_timestamp": time.time(),
             "export_date": datetime.now().isoformat(),
-            "total_memories": self.collection.count(),
+            "total_memories": len(self.memories),
             "config": {
                 "embed_model": self.config.embed_model,
-                "collection": self.config.chroma_collection
+                "decay_lambda": self.config.decay_lambda,
+                "min_strength": self.config.min_strength
             },
-            "memories": []
+            "memories": [entry.to_dict() for entry in self.memories.values()]
         }
         
-        all_mem = self.collection.get(include=["documents", "metadatas"])
-        for mem_id, doc, meta in zip(all_mem["ids"], all_mem["documents"], all_mem["metadatas"]):
-            metadata = self.memory_metadata.get(mem_id)
-            export_data["memories"].append({
-                "id": mem_id,
-                "text": doc,
-                "created_at": meta.get("created_at"),
-                "metadata": metadata.to_dict() if metadata else {}
-            })
-        
-        export_file = paths.get_export_file()
-        export_file.write_text(json.dumps(export_data, indent=2))
-        return export_file
+        filename = self.config.export_path / f"continuum_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename.write_text(json.dumps(export_data, indent=2))
+        return filename
     
-    def reset_all(self):
+    def reset(self):
         """Complete memory wipe"""
         try:
             self.client.delete_collection(self.config.chroma_collection)
@@ -489,125 +714,86 @@ class AdvancedMemorySystem:
                 name=self.config.chroma_collection,
                 metadata={"hnsw:space": "cosine"}
             )
-            self.memory_metadata.clear()
+            self.memories.clear()
             self._save_metadata()
+            logger.warning("Memory system reset")
         except Exception as e:
-            st.error(f"Reset failed: {e}")
+            logger.error(f"Reset failed: {e}")
 
 # ============================================================================
-# INTELLIGENT RESPONSE GENERATOR
+# RESPONSE GENERATOR
 # ============================================================================
 
 class ResponseGenerator:
     """Handles LLM interactions with context management"""
     
-    def __init__(self, config: AppConfig):
-        self.config = config
+    def __init__(self):
         self.conversation_history: List[Dict[str, str]] = []
-        self.max_history = 10
         
         @st.cache_resource
-        def load_model():
-            return pipeline(
-                "text2text-generation",
-                model=config.llm_model,
-                device=-1,
-                model_kwargs={"torch_dtype": "float32"}
-            )
+        def _load_model():
+            with st.spinner("🤖 Loading language model..."):
+                return pipeline(
+                    "text2text-generation",
+                    model=CONFIG.llm_model,
+                    device=-1,
+                    model_kwargs={"torch_dtype": "float32"}
+                )
         
-        self.model = load_model()
+        self.model = _load_model()
     
-    def add_to_history(self, role: str, content: str):
-        """Add message to conversation history"""
-        self.conversation_history.append({"role": role, "content": content})
-        if len(self.conversation_history) > self.max_history * 2:
-            self.conversation_history = self.conversation_history[-self.max_history * 2:]
-    
-    def clear_history(self):
-        """Clear conversation history"""
-        self.conversation_history = []
-    
-    def build_context(self, query: str, memories: List[Dict]) -> str:
-        """Build intelligent context from memories"""
-        if not memories:
-            return query
-        
-        context_parts = ["Relevant information from my memory:"]
-        for i, mem in enumerate(memories[:3], 1):
-            context_parts.append(f"{i}. {mem['text']}")
-        
-        context = "\n".join(context_parts)
-        return f"{context}\n\nUser question: {query}"
-    
-    def generate_response(self, query: str, memories: List[Dict]) -> str:
-        """Generate a thoughtful response using context"""
+    def generate(self, query: str, memories: List[MemoryEntry]) -> str:
+        """Generate response with context awareness"""
         try:
-            context = self.build_context(query, memories)
+            # Build context from memories
+            context = ""
+            if memories:
+                context_parts = ["I recall:"]
+                for mem in memories[:3]:
+                    context_parts.append(f"• {mem.text}")
+                context = "\n".join(context_parts) + "\n\n"
             
-            prompt = f"""You are Continuum, a warm, helpful AI assistant with persistent memory.
-You remember past conversations and use that information naturally.
-Be concise, friendly, and conversational.
-
-{context}
-
-Your response:"""
+            # Build prompt
+            prompt = f"""{context}User question: {query}
+Answer concisely and helpfully, weaving in relevant memories naturally:"""
             
             result = self.model(
                 prompt,
-                max_length=self.config.max_tokens,
-                temperature=self.config.temperature,
+                max_length=CONFIG.max_tokens,
+                temperature=CONFIG.temperature,
                 do_sample=True,
-                top_p=0.95,
-                repetition_penalty=1.1
+                top_p=0.95
             )
             
             response = result[0]['generated_text'].strip()
-            
-            if not response or len(response) < 5:
-                response = "I understand. Could you tell me more about that?"
+            if not response:
+                response = "I understand. Could you tell me more?"
             
             return response
             
         except Exception as e:
-            return f"I appreciate you sharing that. Let me think about what you said."
+            logger.error(f"Generation failed: {e}")
+            return "I appreciate you sharing that. Let me think about it."
+    
+    def clear_history(self):
+        self.conversation_history = []
 
 # ============================================================================
-# SMART FACT EXTRACTION
+# FACT EXTRACTOR
 # ============================================================================
 
 class FactExtractor:
-    """Intelligent fact extraction from conversations"""
+    """Intelligent fact extraction from conversation"""
     
     PATTERNS = {
-        "name": [
-            r"(?:my|our) name is (\w+)",
-            r"i(?:'m| am) (\w+)",
-            r"call me (\w+)",
-            r"you can call me (\w+)"
-        ],
-        "location": [
-            r"i (?:live|stay|reside) (?:in|at) (.+?)(?:\.|,|$)",
-            r"i(?:'m| am) from (.+?)(?:\.|,|$)",
-            r"from (.+?)(?:\.|,|$)"
-        ],
-        "work": [
-            r"i (?:work|job|employed) (?:at|for|as) (.+?)(?:\.|,|$)",
-            r"i(?:'m| am) (?:a|an) (.+?) (?:at|for|in|and|\.)",
-            r"my job is (.+?)(?:\.|,|$)"
-        ],
-        "interest": [
-            r"i (?:like|love|enjoy|prefer) (.+?)(?:\.|,|$)",
-            r"(?:my|our) (?:hobby|passion|interest) is (.+?)(?:\.|,|$)"
-        ],
-        "preference": [
-            r"i (?:prefer|favor|like) (.+?)(?:\.|,|$)",
-            r"(?:my|our) favorite (.+?) is (.+?)(?:\.|,|$)"
-        ]
+        "name": [r"(?:my|our) name is (\w+)", r"i(?:'m| am) (\w+)", r"call me (\w+)"],
+        "location": [r"i live (?:in|at) (.+?)(?:\.|,|$)", r"i(?:'m| am) from (.+?)(?:\.|,|$)"],
+        "work": [r"i work (?:at|for|as) (.+?)(?:\.|,|$)", r"my job is (.+?)(?:\.|,|$)"],
+        "interest": [r"i (?:like|love|enjoy|prefer) (.+?)(?:\.|,|$)"]
     }
     
     @classmethod
-    def extract_facts(cls, user_message: str, bot_response: str) -> List[Dict[str, Any]]:
-        """Extract structured facts from conversation"""
+    def extract(cls, user_message: str, bot_response: str) -> List[str]:
         combined = f"{user_message} {bot_response}".lower()
         facts = []
         
@@ -618,110 +804,147 @@ class FactExtractor:
                     fact_text = match if isinstance(match, str) else match[0]
                     fact_text = fact_text.strip().capitalize()
                     
-                    if len(fact_text) > 3 and len(fact_text) < 100:
-                        facts.append({
-                            "category": category,
-                            "value": fact_text,
-                            "statement": cls._format_fact(category, fact_text)
-                        })
+                    if 3 <= len(fact_text) <= 50 and fact_text not in facts:
+                        templates = {
+                            "name": f"User's name is {fact_text}",
+                            "location": f"User lives in {fact_text}",
+                            "work": f"User works at {fact_text}",
+                            "interest": f"User enjoys {fact_text}"
+                        }
+                        facts.append(templates.get(category, fact_text))
+                        
+                        if len(facts) >= 3:
+                            return facts
         
-        # Remove duplicates
-        unique_facts = []
-        seen = set()
-        for fact in facts:
-            if fact["statement"] not in seen:
-                seen.add(fact["statement"])
-                unique_facts.append(fact)
-        
-        return unique_facts[:5]
-    
-    @classmethod
-    def _format_fact(cls, category: str, value: str) -> str:
-        """Format fact into natural language"""
-        templates = {
-            "name": f"User's name is {value}",
-            "location": f"User lives in {value}",
-            "work": f"User works at/with {value}",
-            "interest": f"User enjoys {value}",
-            "preference": f"User prefers {value}"
-        }
-        return templates.get(category, f"User mentioned: {value}")
+        return facts[:3]
 
 # ============================================================================
 # UI COMPONENTS
 # ============================================================================
 
 class UIComponents:
-    """Reusable UI components"""
+    """Professional UI components"""
     
     @staticmethod
     def render_header():
+        st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
         st.markdown("""
-        <div class="main-header">
+        <div class="continuum-header">
             <h1>🧠 Continuum RAG</h1>
-            <p>Persistent Memory Chatbot with Intelligent Recall • No API Keys • Free Forever</p>
+            <p>Persistent Memory Chatbot • No API Keys • Free Forever • Enterprise Grade</p>
         </div>
         """, unsafe_allow_html=True)
     
     @staticmethod
-    def render_sidebar_stats(memory_system: AdvancedMemorySystem):
+    def render_sidebar(memory: ContinuumMemory) -> Dict[str, Any]:
         with st.sidebar:
-            st.markdown("### 📊 Memory Statistics")
+            st.markdown("### 🧠 Memory Dashboard")
             
-            stats = memory_system.get_statistics()
+            stats = memory.get_statistics()
             
+            # Metric cards
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Total Memories", stats["total"])
-                st.metric("Active Memories", stats["active"])
+                st.metric("Total Memories", stats["total"], delta=None)
+                st.metric("Strong Memories", stats["strong"])
             with col2:
                 st.metric("Avg Strength", f"{stats['avg_strength']:.2f}")
-                st.metric("Storage", f"{stats['size_kb']:.0f} KB")
+                st.metric("Total Accesses", stats["total_accesses"])
             
+            # Strength distribution
             if stats["total"] > 0:
                 st.markdown("---")
-                st.markdown("### 🔥 Top Memories")
-                top_memories = memory_system.get_top_memories(5)
+                st.markdown("#### Memory Strength")
+                progress_data = [
+                    (stats["strong"], "Strong", "#22c55e"),
+                    (stats["moderate"], "Moderate", "#eab308"),
+                    (stats["weak"], "Weak", "#ef4444")
+                ]
+                for count, label, color in progress_data:
+                    if count > 0:
+                        pct = (count / stats["total"]) * 100
+                        st.markdown(f"<small>{label}: {count}</small>", unsafe_allow_html=True)
+                        st.progress(pct / 100)
+            
+            # Top memories
+            st.markdown("---")
+            st.markdown("#### 🔥 Strongest Memories")
+            top_memories = memory.get_top_memories(5)
+            if top_memories:
                 for mem in top_memories:
-                    strength_color = "🟢" if mem["strength"] > 0.6 else "🟡" if mem["strength"] > 0.3 else "🔴"
-                    st.caption(f"{strength_color} {mem['text'][:50]}...")
-                    st.caption(f"   Strength: {mem['strength']:.2f} | Access: {mem['access_count']}")
+                    strength_color = "#22c55e" if mem.strength >= 0.7 else "#eab308" if mem.strength >= 0.4 else "#ef4444"
+                    st.markdown(f"""
+                    <div style="background:rgba(255,255,255,0.03); border-radius:0.5rem; padding:0.5rem; margin-bottom:0.5rem">
+                        <div style="font-size:0.8rem; color:#a1a1b0">{mem.text[:60]}...</div>
+                        <div style="font-size:0.7rem; margin-top:0.25rem">
+                            <span style="color:{strength_color}">●</span> Strength: {mem.strength:.2f}
+                            <span style="margin-left:0.5rem">🔍 Accesses: {mem.access_count}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("*No memories yet. Start chatting!*")
             
             st.markdown("---")
-            st.markdown("### 🛠️ Controls")
-    
-    @staticmethod
-    def render_settings():
-        with st.sidebar.expander("⚙️ Advanced Settings", expanded=False):
-            top_k = st.slider("Memory Retrieval (Top-K)", 1, 10, 5, 
-                             help="Number of memories to retrieve for context")
-            temperature = st.slider("Response Creativity", 0.0, 1.5, 0.7, 0.05,
-                                   help="Higher = more creative, Lower = more focused")
-            enable_decay = st.checkbox("Enable Memory Decay", True,
-                                      help="Memories fade naturally over time")
+            
+            # Actions
+            st.markdown("#### ⚡ Actions")
+            export_clicked = st.button("💾 Export Memories", use_container_width=True)
+            reset_clicked = st.button("🗑️ Reset All Memory", use_container_width=True, type="secondary")
+            clear_clicked = st.button("💬 Clear Conversation", use_container_width=True)
+            
+            st.markdown("---")
+            st.caption("🧠 Continuum RAG v2.0")
+            st.caption(f"Model: {CONFIG.llm_model.split('/')[-1]}")
+            st.caption("⚡ Local & Private")
             
             return {
-                "top_k": top_k,
-                "temperature": temperature,
-                "enable_decay": enable_decay
+                "export": export_clicked,
+                "reset": reset_clicked,
+                "clear": clear_clicked,
+                "stats": stats
             }
     
     @staticmethod
-    def render_action_buttons():
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            export_clicked = st.button("💾 Export Memories", use_container_width=True)
-        with col2:
-            reset_clicked = st.button("🗑️ Reset Memory", use_container_width=True)
-        with col3:
-            clear_clicked = st.button("💬 Clear Chat", use_container_width=True)
-        
-        return export_clicked, reset_clicked, clear_clicked
-    
-    @staticmethod
     def render_typing_indicator():
-        return st.markdown('<div class="typing-indicator">🧠 Continuum is thinking...</div>', 
-                          unsafe_allow_html=True)
+        return st.markdown("""
+        <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <span style="margin-left:0.5rem; color:#a1a1b0">Continuum is thinking...</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ============================================================================
+# MESSAGE PROCESSOR
+# ============================================================================
+
+class MessageProcessor:
+    """Handles message processing pipeline"""
+    
+    def __init__(self, memory: ContinuumMemory, generator: ResponseGenerator):
+        self.memory = memory
+        self.generator = generator
+    
+    def process(self, message: str) -> Tuple[str, List[MemoryEntry]]:
+        """Process user message through the pipeline"""
+        
+        # Apply memory decay
+        self.memory.apply_decay()
+        
+        # Retrieve relevant memories
+        memories = self.memory.retrieve(message)
+        
+        # Generate response
+        response = self.generator.generate(message, memories)
+        
+        # Extract and store facts
+        facts = FactExtractor.extract(message, response)
+        for fact in facts:
+            self.memory.add(fact, source="extracted")
+        
+        return response, memories
 
 # ============================================================================
 # MAIN APPLICATION
@@ -730,97 +953,73 @@ class UIComponents:
 def initialize_session():
     """Initialize all session state variables"""
     if "initialized" not in st.session_state:
-        st.session_state.config = AppConfig()
-        st.session_state.memory_system = AdvancedMemorySystem(st.session_state.config)
-        st.session_state.response_generator = ResponseGenerator(st.session_state.config)
+        st.session_state.memory = ContinuumMemory()
+        st.session_state.generator = ResponseGenerator()
+        st.session_state.processor = MessageProcessor(st.session_state.memory, st.session_state.generator)
         st.session_state.messages = []
-        st.session_state.fact_extractor = FactExtractor()
         st.session_state.initialized = True
-        st.session_state.last_decay_time = time.time()
-
-def process_message(message: str, memory_system: AdvancedMemorySystem, 
-                    response_gen: ResponseGenerator, settings: dict) -> tuple:
-    """Process user message and generate response"""
-    
-    # Apply memory decay periodically
-    if time.time() - st.session_state.last_decay_time > 3600:
-        memory_system.apply_decay()
-        st.session_state.last_decay_time = time.time()
-    
-    # Retrieve relevant memories
-    memories = memory_system.retrieve(message, top_k=settings.get("top_k", 5))
-    
-    # Generate response
-    response = response_gen.generate_response(message, memories)
-    
-    # Extract and store facts
-    if st.session_state.config.enable_fact_extraction:
-        facts = FactExtractor.extract_facts(message, response)
-        for fact in facts:
-            memory_system.add_memory(fact["statement"], source="extracted_fact")
-    
-    # Update conversation history
-    response_gen.add_to_history("user", message)
-    response_gen.add_to_history("assistant", response)
-    
-    return response, memories
-
-# ============================================================================
-# MAIN APP RENDER
-# ============================================================================
 
 def main():
+    """Main application entry point"""
+    
+    # Initialize
     initialize_session()
     
-    # Render UI
+    # Render header
     UIComponents.render_header()
     
-    # Sidebar
-    UIComponents.render_sidebar_stats(st.session_state.memory_system)
-    settings = UIComponents.render_settings()
-    export_clicked, reset_clicked, clear_clicked = UIComponents.render_action_buttons()
+    # Render sidebar and get actions
+    actions = UIComponents.render_sidebar(st.session_state.memory)
     
     # Handle actions
-    if export_clicked:
-        with st.spinner("Exporting memories..."):
-            export_file = st.session_state.memory_system.export_all()
-            st.success(f"✅ Exported to {export_file}")
-    
-    if reset_clicked:
+    if actions["reset"]:
         with st.spinner("Resetting memory system..."):
-            st.session_state.memory_system.reset_all()
-            st.session_state.response_generator.clear_history()
+            st.session_state.memory.reset()
             st.session_state.messages = []
-            st.success("🧠 Memory system has been reset!")
+            st.success("✅ Memory system reset successfully!")
             time.sleep(1)
             st.rerun()
     
-    if clear_clicked:
-        st.session_state.response_generator.clear_history()
+    if actions["clear"]:
         st.session_state.messages = []
+        st.session_state.generator.clear_history()
         st.rerun()
     
-    # Display chat interface
+    if actions["export"]:
+        try:
+            export_path = st.session_state.memory.export()
+            with open(export_path, "r") as f:
+                st.download_button(
+                    label="📥 Download Export",
+                    data=f.read(),
+                    file_name=export_path.name,
+                    mime="application/json"
+                )
+            st.success(f"✅ Exported {actions['stats']['total']} memories")
+        except Exception as e:
+            st.error(f"Export failed: {e}")
+    
+    # Chat container
     st.markdown("### 💬 Conversation")
     
-    # Show welcome message if no messages
+    # Welcome message
     if not st.session_state.messages:
         with st.chat_message("assistant", avatar="🧠"):
-            st.markdown("""Hello! I'm **Continuum**, your persistent memory assistant.
-
-I remember our conversations and learn about you over time. Try telling me:
-
-- *"My name is Sarah"*
-- *"I work as a software engineer"*
-- *"I love hiking and photography"*
-
-Then ask me *"What do you know about me?"* and watch me remember! ✨""")
+            st.markdown("""
+            Hello! I'm **Continuum**, your persistent memory assistant.
+            
+            I remember our conversations and learn about you over time. Try telling me:
+            
+            > *"My name is Sarah, and I love photography"*
+            
+            Then ask me *"What do you know about me?"* — I'll remember! ✨
+            """)
     
     # Display chat history
-    for message in st.session_state.messages:
-        avatar = "👤" if message["role"] == "user" else "🧠"
-        with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
+    for msg in st.session_state.messages:
+        avatar = "👤" if msg["role"] == "user" else "🧠"
+        with st.chat_message(msg["role"], avatar=avatar):
+            st.markdown(msg["content"])
     
     # Chat input
     if prompt := st.chat_input("Type your message here..."):
@@ -829,25 +1028,43 @@ Then ask me *"What do you know about me?"* and watch me remember! ✨""")
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
         
-        # Generate and display response
+        # Generate response
         with st.chat_message("assistant", avatar="🧠"):
-            with st.spinner("💭 Thinking..."):
-                response, memories = process_message(
-                    prompt,
-                    st.session_state.memory_system,
-                    st.session_state.response_generator,
-                    settings
-                )
-                
-                # Show retrieved memories in expander
-                if memories:
-                    with st.expander(f"🔍 Retrieved {len(memories)} memories", expanded=False):
-                        for mem in memories:
-                            strength_pct = int(mem['strength'] * 100)
-                            st.caption(f"📝 {mem['text'][:100]}...")
-                            st.progress(strength_pct / 100, text=f"Strength: {strength_pct}%")
-                
-                st.markdown(response)
+            placeholder = st.empty()
+            
+            # Show typing indicator
+            with placeholder:
+                UIComponents.render_typing_indicator()
+            
+            # Process message
+            response, memories = st.session_state.processor.process(prompt)
+            
+            # Clear indicator and show response
+            placeholder.empty()
+            
+            # Show retrieved memories in expander
+            if memories:
+                with st.expander(f"🔍 Retrieved {len(memories)} relevant memories", expanded=False):
+                    for mem in memories:
+                        strength_color = "#22c55e" if mem.strength >= 0.7 else "#eab308" if mem.strength >= 0.4 else "#ef4444"
+                        st.markdown(f"""
+                        <div style="margin-bottom:0.5rem; padding:0.5rem; background:rgba(255,255,255,0.03); border-radius:0.5rem">
+                            <div style="font-size:0.85rem">{mem.text}</div>
+                            <div style="font-size:0.7rem; margin-top:0.25rem">
+                                <span style="color:{strength_color}">●</span> Strength: {mem.strength:.2f}
+                                <span style="margin-left:0.5rem">🔄 Accessed: {mem.access_count} times</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            st.markdown(response)
+            
+            # Show fact extraction notification
+            facts = FactExtractor.extract(prompt, response)
+            if facts:
+                with st.status(f"📝 Learned {len(facts)} new fact(s)", expanded=False):
+                    for fact in facts:
+                        st.write(f"• {fact}")
         
         # Add assistant message
         st.session_state.messages.append({"role": "assistant", "content": response})
