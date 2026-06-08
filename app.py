@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 
-st.set_page_config(page_title="Continuum RAG", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Continuum Teacher", page_icon="📚", layout="wide")
 
 st.markdown("""
 <style>
@@ -101,339 +101,304 @@ st.markdown("""
 
 st.markdown("""
 <div class="header">
-    <h1>🧠 Continuum RAG</h1>
-    <p>Intelligent Memory Assistant · Precise · No API Keys · Free Forever</p>
+    <h1>📚 Continuum Teacher</h1>
+    <p>Your Personal AI Teacher · Knowledgeable · No API Keys · Free Forever</p>
 </div>
 """, unsafe_allow_html=True)
 
-class Memory:
-    def __init__(self):
-        self.file_path = Path("./memories.json")
-        self.data = self._load()
-    
-    def _load(self):
-        if self.file_path.exists():
-            try:
-                loaded = json.loads(self.file_path.read_text())
-                # Ensure required keys exist
-                if "facts" not in loaded:
-                    loaded["facts"] = {}
-                if "conversations" not in loaded:
-                    loaded["conversations"] = []
-                return loaded
-            except:
-                return {"facts": {}, "conversations": []}
-        return {"facts": {}, "conversations": []}
-    
-    def _save(self):
-        try:
-            self.file_path.write_text(json.dumps(self.data, indent=2))
-        except:
-            pass
-    
-    def add_fact(self, key, value):
-        if not hasattr(self, 'data') or self.data is None:
-            self.data = {"facts": {}, "conversations": []}
-        self.data["facts"][key] = value
-        self._save()
-    
-    def get_fact(self, key):
-        if not hasattr(self, 'data') or self.data is None:
-            return None
-        return self.data["facts"].get(key)
-    
-    def get_all_facts(self):
-        if not hasattr(self, 'data') or self.data is None:
-            return {}
-        return self.data["facts"]
-    
-    def delete_fact(self, key):
-        if not hasattr(self, 'data') or self.data is None:
-            return
-        if key in self.data["facts"]:
-            del self.data["facts"][key]
-            self._save()
-    
-    def add_conversation(self, user_msg, bot_msg):
-        if not hasattr(self, 'data') or self.data is None:
-            self.data = {"facts": {}, "conversations": []}
-        self.data["conversations"].append({
-            "user": user_msg,
-            "bot": bot_msg,
-            "timestamp": time.time()
-        })
-        if len(self.data["conversations"]) > 50:
-            self.data["conversations"] = self.data["conversations"][-50:]
-        self._save()
-    
-    def count(self):
-        if not hasattr(self, 'data') or self.data is None:
-            return 0
-        return len(self.data.get("facts", {}))
+# ============================================================================
+# COMPREHENSIVE KNOWLEDGE BASE
+# ============================================================================
 
-if "memory" not in st.session_state:
-    st.session_state.memory = Memory()
+class KnowledgeBase:
+    """Extensive subject knowledge across multiple domains"""
+    
+    @staticmethod
+    def get_answer(topic, subtopic=None):
+        kb = {
+            # ========== BANGLADESH ==========
+            "bangladesh": {
+                "capital": "Dhaka is the capital of Bangladesh. It is one of the most densely populated cities in the world.",
+                "population": "Bangladesh has approximately 170 million people, making it the 8th most populous country in the world.",
+                "language": "Bengali (Bangla) is the official language of Bangladesh. It is spoken by over 98% of the population.",
+                "currency": "Bangladeshi Taka (BDT) is the currency. 1 Taka = 100 poisha.",
+                "independence": "Bangladesh gained independence from Pakistan on December 16, 1971 after a 9-month liberation war.",
+                "river": "Bangladesh is called the 'Land of Rivers' with over 700 rivers, including the Ganges (Padma), Brahmaputra (Jamuna), and Meghna.",
+                "food": "Popular foods include: Hilsa fish (national fish), Biryani, Panta Bhat, Roshogolla, and Chotpoti.",
+                "sport": "Cricket is the most popular sport. The national cricket team is known as the Tigers.",
+                "history": "Bangladesh was historically part of ancient Bengal, then British India, then East Pakistan, and became independent in 1971.",
+                "economy": "Bangladesh has a growing economy driven by the ready-made garment (RMG) industry, remittances, and agriculture.",
+                "sundarbans": "The Sundarbans is the largest mangrove forest in the world, home to the Royal Bengal Tiger.",
+                "cox_bazar": "Cox's Bazar is the longest natural sea beach in the world, stretching 120 km.",
+                "default": "Bangladesh is a South Asian country known for its rich culture, rivers, and the Sundarbans. What specific aspect would you like to learn about?"
+            },
+            
+            # ========== MATHEMATICS ==========
+            "math": {
+                "pi": "Pi (π) is approximately 3.14159. It is the ratio of a circle's circumference to its diameter.",
+                "pythagoras": "The Pythagorean theorem: a² + b² = c², where c is the hypotenuse of a right triangle.",
+                "algebra": "Algebra uses letters to represent unknown numbers. Example: x + 5 = 10 → x = 5",
+                "calculus": "Calculus is the study of change. It has two branches: Differential (rates of change) and Integral (accumulation).",
+                "statistics": "Statistics is the science of collecting, analyzing, and interpreting data.",
+                "default": "I can teach you about algebra, geometry, calculus, statistics, or specific formulas. What would you like to learn?"
+            },
+            
+            # ========== SCIENCE ==========
+            "science": {
+                "physics": "Physics studies matter, energy, and their interactions. Branches include mechanics, thermodynamics, electromagnetism, and quantum physics.",
+                "chemistry": "Chemistry studies matter, its properties, how substances combine and change. Key areas: organic, inorganic, physical, and analytical chemistry.",
+                "biology": "Biology studies living organisms. Major branches: botany (plants), zoology (animals), microbiology (microorganisms), genetics, and ecology.",
+                "gravity": "Gravity is a force that attracts objects with mass. On Earth, acceleration due to gravity is 9.8 m/s².",
+                "photosynthesis": "Photosynthesis is how plants make food: 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂ (carbon dioxide + water → glucose + oxygen).",
+                "dna": "DNA (deoxyribonucleic acid) contains genetic instructions. It has a double helix structure discovered by Watson and Crick.",
+                "default": "I can teach physics, chemistry, biology, or specific topics like gravity, photosynthesis, or DNA. What interests you?"
+            },
+            
+            # ========== HISTORY ==========
+            "history": {
+                "world_war_1": "World War I (1914-1918) was a global war centered in Europe. It started after the assassination of Archduke Franz Ferdinand.",
+                "world_war_2": "World War II (1939-1945) involved most of the world. Key events: Holocaust, atomic bombs on Hiroshima and Nagasaki.",
+                "french_revolution": "The French Revolution (1789-1799) overthrew the monarchy and established a republic. 'Liberty, Equality, Fraternity'.",
+                "industrial_revolution": "The Industrial Revolution (1760-1840) transformed manufacturing with machines, steam power, and factories.",
+                "default": "I can teach about world wars, revolutions, ancient civilizations, or specific historical periods. What would you like to learn?"
+            },
+            
+            # ========== GEOGRAPHY ==========
+            "geography": {
+                "continents": "The seven continents are: Asia, Africa, North America, South America, Antarctica, Europe, and Australia.",
+                "oceans": "The five oceans are: Pacific (largest), Atlantic, Indian, Southern, and Arctic (smallest).",
+                "mount_everest": "Mount Everest is the highest mountain at 8,848 meters (29,029 feet), located in Nepal/Tibet.",
+                "amazon": "The Amazon River is the longest (7,062 km). The Amazon Rainforest is the largest tropical rainforest.",
+                "default": "I can teach about continents, oceans, mountains, rivers, countries, or capitals. What would you like to learn?"
+            },
+            
+            # ========== COMPUTER SCIENCE ==========
+            "computers": {
+                "python": "Python is a high-level programming language known for readability. Created by Guido van Rossum in 1991.",
+                "ai": "Artificial Intelligence (AI) simulates human intelligence in machines. Subfields include machine learning, deep learning, and NLP.",
+                "machine_learning": "Machine Learning enables computers to learn from data without explicit programming. Types: supervised, unsupervised, reinforcement.",
+                "algorithm": "An algorithm is a step-by-step procedure for solving a problem. Examples: sorting, searching, pathfinding.",
+                "default": "I can teach programming, AI, algorithms, data structures, or computer history. What interests you?"
+            },
+            
+            # ========== LITERATURE ==========
+            "literature": {
+                "shakespeare": "William Shakespeare (1564-1616) wrote 37 plays and 154 sonnets. Famous works: Hamlet, Romeo and Juliet, Macbeth.",
+                "poetry": "Poetry uses aesthetic and rhythmic qualities of language. Types: sonnet, haiku, free verse, epic, lyric.",
+                "novel": "A novel is a long fictional narrative. The first novel is often considered 'Don Quixote' by Cervantes (1605).",
+                "default": "I can teach about Shakespeare, poetry, novels, famous authors, or literary devices. What would you like to learn?"
+            },
+            
+            # ========== PHILOSOPHY ==========
+            "philosophy": {
+                "socrates": "Socrates (470-399 BCE) was a Greek philosopher known for the Socratic method of questioning.",
+                "plato": "Plato (428-348 BCE) founded the Academy in Athens. Wrote 'The Republic' about justice and ideal society.",
+                "aristotle": "Aristotle (384-322 BCE) studied logic, ethics, politics, and biology. Tutored Alexander the Great.",
+                "default": "I can teach about Socrates, Plato, Aristotle, Stoicism, Existentialism, or major philosophical ideas."
+            }
+        }
+        
+        for domain, content in kb.items():
+            if domain in topic.lower():
+                if subtopic and subtopic in content:
+                    return content[subtopic]
+                return content.get("default", f"I can teach you about {domain}. What specific aspect would you like to know?")
+        return None
+
+# ============================================================================
+# TEACHER BOT
+# ============================================================================
+
+class TeacherBot:
+    def __init__(self):
+        self.kb = KnowledgeBase()
+        self.conversation_context = []
+    
+    def teach(self, user_query):
+        query_lower = user_query.lower()
+        
+        # Subject detection
+        subjects = {
+            "bangladesh": ["bangladesh", "dhaka", "sundarbans", "cox", "bay of bengal", "padma", "meghna"],
+            "math": ["math", "algebra", "geometry", "calculus", "statistics", "pi", "pythagoras"],
+            "science": ["science", "physics", "chemistry", "biology", "gravity", "photosynthesis", "dna"],
+            "history": ["history", "world war", "revolution", "industrial", "ancient", "medieval"],
+            "geography": ["geography", "continent", "ocean", "mountain", "river", "country", "capital"],
+            "computers": ["computer", "programming", "python", "ai", "algorithm", "machine learning"],
+            "literature": ["literature", "shakespeare", "poetry", "novel", "author", "book"],
+            "philosophy": ["philosophy", "socrates", "plato", "aristotle", "stoic", "existential"]
+        }
+        
+        detected_subject = None
+        detected_keyword = None
+        
+        for subject, keywords in subjects.items():
+            for keyword in keywords:
+                if keyword in query_lower:
+                    detected_subject = subject
+                    detected_keyword = keyword
+                    break
+            if detected_subject:
+                break
+        
+        # Special patterns
+        if "who is" in query_lower or "what is" in query_lower or "tell me about" in query_lower:
+            # Extract the topic
+            patterns = [r"who is (\w+)", r"what is (\w+)", r"tell me about (\w+)"]
+            for pattern in patterns:
+                match = re.search(pattern, query_lower)
+                if match:
+                    topic = match.group(1)
+                    answer = self.kb.get_answer(topic, topic)
+                    if answer:
+                        return answer
+        
+        # Subject-based teaching
+        if detected_subject:
+            # Extract specific subtopic if any
+            words = query_lower.split()
+            for word in words:
+                answer = self.kb.get_answer(detected_subject, word)
+                if answer and word not in detected_keyword:
+                    return answer
+            return self.kb.get_answer(detected_subject, "default")
+        
+        # Question patterns
+        if query_lower.startswith(("what", "why", "how", "when", "where", "who", "which")):
+            return self._handle_general_question(query_lower)
+        
+        # Greetings
+        if any(g in query_lower for g in ["hello", "hi", "hey", "greetings"]):
+            return "Hello! I'm your teacher. What subject would you like to learn today? I can teach Math, Science, History, Geography, Computer Science, Literature, Philosophy, and more!"
+        
+        # How are you
+        if "how are you" in query_lower:
+            return "I'm ready to teach! What would you like to learn today?"
+        
+        # Thanks
+        if "thank" in query_lower:
+            return "You're welcome! Keep learning. Is there anything else I can teach you?"
+        
+        # Help
+        if "help" in query_lower or "what can you teach" in query_lower:
+            return self._get_help()
+        
+        # Default - offer to teach
+        return "I'm your teacher. You can ask me about: Bangladesh, Math, Science, History, Geography, Computer Science, Literature, or Philosophy. What would you like to learn?"
+    
+    def _handle_general_question(self, query):
+        # Try to extract subject from question
+        subjects = ["bangladesh", "math", "science", "history", "geography", "computer", "philosophy", "literature"]
+        for subject in subjects:
+            if subject in query:
+                return self.kb.get_answer(subject, "default")
+        
+        # Try specific keywords
+        keywords = ["capital", "population", "river", "ocean", "mountain", "gravity", "photosynthesis", "dna", "python", "ai", "algorithm"]
+        for keyword in keywords:
+            if keyword in query:
+                for subject in subjects:
+                    answer = self.kb.get_answer(subject, keyword)
+                    if answer:
+                        return answer
+        
+        return "That's a great question! Could you tell me which subject you're asking about? I can teach Math, Science, History, Geography, and more."
+    
+    def _get_help(self):
+        return """**📚 Continuum Teacher - Subjects I Can Teach**
+
+**🇧🇩 Bangladesh Studies**
+• History, Independence, Capital, Population, Language, Currency, Rivers, Food, Sports, Sundarbans, Cox's Bazar
+
+**🧮 Mathematics**
+• Algebra, Geometry, Calculus, Statistics, Pi, Pythagorean Theorem
+
+**🔬 Science**
+• Physics, Chemistry, Biology, Gravity, Photosynthesis, DNA, Evolution
+
+**📖 History**
+• World War I & II, French Revolution, Industrial Revolution, Ancient Civilizations
+
+**🌍 Geography**
+• Continents, Oceans, Mountains, Rivers, Countries, Capitals
+
+**💻 Computer Science**
+• Programming, Python, AI, Machine Learning, Algorithms
+
+**📚 Literature**
+• Shakespeare, Poetry, Novels, Famous Authors
+
+**🤔 Philosophy**
+• Socrates, Plato, Aristotle, Stoicism, Existentialism
+
+**Try asking:**
+• "Tell me about Bangladesh"
+• "What is the capital of Bangladesh?"
+• "Teach me about gravity"
+• "Who was Shakespeare?"
+• "What is Python programming?" """
+
+# ============================================================================
+# MAIN APP
+# ============================================================================
+
+if "teacher" not in st.session_state:
+    st.session_state.teacher = TeacherBot()
     st.session_state.messages = []
 
 with st.sidebar:
-    st.markdown("### 🧠 Memory Dashboard")
-    st.metric("Facts Stored", st.session_state.memory.count())
+    st.markdown("### 📚 Teacher Info")
+    st.markdown("I can teach you:")
+    st.markdown("• 🇧🇩 Bangladesh Studies")
+    st.markdown("• 🧮 Mathematics")
+    st.markdown("• 🔬 Science")
+    st.markdown("• 📖 History")
+    st.markdown("• 🌍 Geography")
+    st.markdown("• 💻 Computer Science")
+    st.markdown("• 📚 Literature")
+    st.markdown("• 🤔 Philosophy")
     
     st.markdown("---")
-    st.markdown("#### 📌 Stored Facts")
-    facts = st.session_state.memory.get_all_facts()
-    
-    if facts:
-        for key, value in facts.items():
-            st.markdown(f"**{key}:** {value}")
-    else:
-        st.caption("*No facts stored yet*")
-        st.caption("Try: 'My name is John'")
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
     
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🗑️ Reset", use_container_width=True):
-            st.session_state.memory = Memory()
-            st.session_state.messages = []
-            st.rerun()
-    with col2:
-        if st.button("💬 Clear Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.rerun()
-    
-    st.markdown("---")
-    st.caption("💡 Tips:")
-    st.caption("• 'My name is X'")
-    st.caption("• 'I work as X'")
-    st.caption("• 'I like X'")
-    st.caption("• 'What do you know?'")
+    st.caption("💡 Try asking:")
+    st.caption("• 'Tell me about Bangladesh'")
+    st.caption("• 'What is the capital of Dhaka?'")
+    st.caption("• 'Teach me about gravity'")
+    st.caption("• 'Who was Shakespeare?'")
+    st.caption("• 'What is Python?'")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-def extract_and_store_facts(text, memory):
-    lower = text.lower()
-    stored = []
-    
-    # Name extraction
-    name_patterns = [
-        r"my name is (\w+)",
-        r"i(?:'m| am) called (\w+)",
-        r"call me (\w+)",
-        r"i(?:'m| am) (\w+)"
-    ]
-    for pattern in name_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            name = match.group(1).capitalize()
-            if len(name) >= 2 and name.lower() not in ["i", "me", "my", "a"]:
-                memory.add_fact("Name", name)
-                stored.append(("Name", name))
-            break
-    
-    # Job extraction
-    job_patterns = [
-        r"i (?:work as|am a|am an) (\w+)",
-        r"my job is (\w+)",
-        r"i(?:'m| am) (?:a|an) (\w+)"
-    ]
-    for pattern in job_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            job = match.group(1).capitalize()
-            if len(job) >= 2:
-                memory.add_fact("Job", job)
-                stored.append(("Job", job))
-            break
-    
-    # Hobby extraction
-    hobby_patterns = [
-        r"i (?:like|love|enjoy) (\w+)",
-        r"my hobby is (\w+)",
-        r"i(?:'m| am) into (\w+)"
-    ]
-    for pattern in hobby_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            hobby = match.group(1).capitalize()
-            if len(hobby) >= 2:
-                memory.add_fact("Hobby", hobby)
-                stored.append(("Hobby", hobby))
-            break
-    
-    # Location extraction
-    location_patterns = [
-        r"i live in (\w+)",
-        r"i(?:'m| am) from (\w+)",
-        r"from (\w+)"
-    ]
-    for pattern in location_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            location = match.group(1).capitalize()
-            if len(location) >= 2:
-                memory.add_fact("Location", location)
-                stored.append(("Location", location))
-            break
-    
-    return stored
+if not st.session_state.messages:
+    with st.chat_message("assistant", avatar="📚"):
+        st.markdown("""Hello! I'm **Continuum Teacher**.
 
-def generate_intelligent_response(prompt, memory):
-    lower = prompt.lower()
-    facts = memory.get_all_facts()
-    
-    # ========== QUESTION HANDLING ==========
-    
-    # Name questions
-    if re.search(r"what('s| is) my name|do you know my name|my name", lower):
-        name = memory.get_fact("Name")
-        if name:
-            return f"Your name is {name}."
-        return "I don't know your name yet. Please tell me: 'My name is [your name]'"
-    
-    # Job questions
-    if re.search(r"what('s| is) my job|what do i do for work|what do i do|my job", lower):
-        job = memory.get_fact("Job")
-        if job:
-            return f"You work as a {job}."
-        return "I don't know your job yet. Please tell me: 'I work as [your job]'"
-    
-    # Hobby questions
-    if re.search(r"what('s| is) my hobby|what do i like|what do i enjoy|my hobby|what am i into", lower):
-        hobby = memory.get_fact("Hobby")
-        if hobby:
-            return f"You enjoy {hobby}."
-        return "I don't know your hobbies yet. Please tell me: 'I like [your hobby]'"
-    
-    # Location questions
-    if re.search(r"where do i live|where am i from|my location|where('s| is) my home", lower):
-        location = memory.get_fact("Location")
-        if location:
-            return f"You live in {location}."
-        return "I don't know where you live. Please tell me: 'I live in [city]'"
-    
-    # General recall
-    if re.search(r"what do you (know|remember) about me|what do you know|what do you remember|tell me about me", lower):
-        if facts:
-            fact_list = []
-            for key, value in facts.items():
-                if key == "Name":
-                    fact_list.append(f"your name is {value}")
-                elif key == "Job":
-                    fact_list.append(f"you work as a {value}")
-                elif key == "Hobby":
-                    fact_list.append(f"you enjoy {value}")
-                elif key == "Location":
-                    fact_list.append(f"you live in {value}")
-            
-            if fact_list:
-                return f"I know that {', '.join(fact_list)}."
-            else:
-                return "I have some information about you. Ask me specifically about your name, job, hobby, or location."
-        return "I don't know anything about you yet. Tell me about yourself."
-    
-    # ========== STATEMENT HANDLING ==========
-    
-    # Name statement
-    if re.search(r"my name is|i am \w+|i'm \w+", lower) and not re.search(r"how are you", lower):
-        name_match = re.search(r"(?:my name is|i am|i'm) (\w+)", lower)
-        if name_match:
-            name = name_match.group(1).capitalize()
-            if len(name) >= 2 and name.lower() not in ["i", "me", "my", "a", "fine", "good", "ok"]:
-                memory.add_fact("Name", name)
-                return f"I'll remember that your name is {name}."
-    
-    # Job statement
-    if re.search(r"i work as|my job is|i am a|i'm a", lower):
-        job_match = re.search(r"(?:i work as|my job is|i am a|i'm a) (\w+)", lower)
-        if job_match:
-            job = job_match.group(1).capitalize()
-            if len(job) >= 2:
-                memory.add_fact("Job", job)
-                return f"I'll remember that you work as a {job}."
-    
-    # Hobby statement
-    if re.search(r"i (?:like|love|enjoy)", lower):
-        hobby_match = re.search(r"i (?:like|love|enjoy) (\w+)", lower)
-        if hobby_match:
-            hobby = hobby_match.group(1).capitalize()
-            if len(hobby) >= 2:
-                memory.add_fact("Hobby", hobby)
-                return f"I'll remember that you enjoy {hobby}."
-    
-    # Location statement
-    if re.search(r"i live in|i am from", lower):
-        location_match = re.search(r"(?:i live in|i am from) (\w+)", lower)
-        if location_match:
-            location = location_match.group(1).capitalize()
-            if len(location) >= 2:
-                memory.add_fact("Location", location)
-                return f"I'll remember that you live in {location}."
-    
-    # ========== GENERAL CONVERSATION ==========
-    
-    # Greetings
-    if re.search(r"^(hello|hi|hey|greetings|sup|yo)", lower):
-        name = memory.get_fact("Name")
-        if name:
-            return f"Hello {name}. How can I help you today?"
-        return "Hello. How can I help you today?"
-    
-    # How are you
-    if re.search(r"how are you|how's it going|how do you do", lower):
-        return "I'm functioning well. What would you like to know?"
-    
-    # Thanks
-    if re.search(r"thank|thanks|appreciate", lower):
-        return "You're welcome."
-    
-    # Goodbye
-    if re.search(r"bye|goodbye|see you|exit|quit", lower):
-        return "Goodbye. Feel free to return anytime."
-    
-    # Help
-    if re.search(r"help|what can you do|commands|how do i use this", lower):
-        return """**Commands:**
+I can teach you about:
+- **Bangladesh** (history, capital, culture, rivers, food)
+- **Mathematics** (algebra, geometry, calculus)
+- **Science** (physics, chemistry, biology)
+- **History** (world wars, revolutions)
+- **Geography** (continents, oceans, mountains)
+- **Computer Science** (programming, AI)
+- **Literature** (Shakespeare, poetry)
+- **Philosophy** (Socrates, Plato)
 
-**Tell me:**
-• "My name is [name]"
-• "I work as [job]"  
-• "I like [hobby]"
-• "I live in [city]"
+**What would you like to learn today?** 📚""")
 
-**Ask me:**
-• "What is my name?"
-• "What do I do?"
-• "What do I like?"
-• "Where do I live?"
-• "What do you know about me?"
-
-**Example:** "My name is John. I work as a doctor. I like photography." """
-    
-    # Default response when no pattern matches
-    if facts:
-        return "I've noted that. Is there anything specific you'd like me to remember or answer?"
-    else:
-        return "Tell me about yourself. For example: 'My name is John', 'I work as a doctor', or 'I like photography'. I'll remember everything you share."
-
-if prompt := st.chat_input("Type your message here..."):
+if prompt := st.chat_input("Ask me anything... I'm your teacher..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    with st.chat_message("assistant"):
-        # Extract and store facts silently
-        new_facts = extract_and_store_facts(prompt, st.session_state.memory)
-        
-        # Generate response
-        response = generate_intelligent_response(prompt, st.session_state.memory)
+    with st.chat_message("assistant", avatar="📚"):
+        response = st.session_state.teacher.teach(prompt)
         st.markdown(response)
-        
-        # Show confirmation for new facts
-        for key, value in new_facts:
-            st.success(f"✓ Remembered: {key} → {value}")
     
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
