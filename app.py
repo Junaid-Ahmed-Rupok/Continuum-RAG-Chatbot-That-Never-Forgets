@@ -1,201 +1,359 @@
-#!/usr/bin/env python3
-"""
-Continuum RAG Chatbot - Persistent Memory System
-Fully Local - No API Keys Required
-Deployment-ready for Hugging Face Spaces, Streamlit, or Local
-"""
-
-import os
-import sys
+import streamlit as st
 import time
 import json
 import math
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
-from collections import deque
-from threading import Thread
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 
-import torch
 import numpy as np
-import gradio as gr
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSeq2SeqLM,
-    pipeline
+from transformers import pipeline
+import pandas as pd
+
+# ============================================================================
+# PAGE CONFIGURATION
+# ============================================================================
+
+st.set_page_config(
+    page_title="Continuum RAG - Persistent Memory Chatbot",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-from loguru import logger
 
 # ============================================================================
-# PATHS & DIRECTORIES
+# CUSTOM CSS - Professional Dark Theme
 # ============================================================================
 
-BASE_PATH = Path(os.getenv("CONTINUUM_DATA_PATH", "./data"))
-CHROMA_PATH = BASE_PATH / "db"
-EXPORT_PATH = BASE_PATH / "exports"
-IMAGE_PATH = BASE_PATH / "images"
-LOG_PATH = BASE_PATH / "logs"
-CONFIG_PATH = BASE_PATH / "config"
-
-for d in [CHROMA_PATH, EXPORT_PATH, IMAGE_PATH, LOG_PATH, CONFIG_PATH]:
-    d.mkdir(parents=True, exist_ok=True)
-
-# ============================================================================
-# LOGGING
-# ============================================================================
-
-logger.remove()
-logger.add(
-    sys.stderr,
-    level="INFO",
-    format="<green>{time:HH:mm:ss}</green> | <level>{level:8}</level> | <cyan>{message}</cyan>"
-)
-logger.add(
-    LOG_PATH / "app.log",
-    rotation="100 MB",
-    retention="7 days",
-    level="DEBUG"
-)
+st.markdown("""
+<style>
+    /* Main background */
+    .stApp {
+        background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+    }
+    
+    /* Header styling */
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 1rem;
+        margin-bottom: 1.5rem;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    
+    .main-header h1 {
+        color: white;
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: 700;
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.9);
+        margin: 0.5rem 0 0 0;
+        font-size: 1rem;
+    }
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: rgba(10, 10, 20, 0.95);
+        border-right: 1px solid rgba(102, 126, 234, 0.3);
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #e0e0e0;
+    }
+    
+    /* Chat message styling */
+    [data-testid="stChatMessage"] {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 1rem;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+    }
+    
+    [data-testid="stChatMessage"]:hover {
+        border-color: rgba(102, 126, 234, 0.5);
+        transition: all 0.3s ease;
+    }
+    
+    /* User message specific */
+    [data-testid="stChatMessage"][data-testid="user"] {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+    }
+    
+    /* Input box styling */
+    [data-testid="stChatInputTextArea"] {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        border-radius: 0.75rem;
+        color: white;
+    }
+    
+    [data-testid="stChatInputTextArea"]:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    }
+    
+    /* Button styling */
+    .stButton button {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+    }
+    
+    [data-testid="stMetric"] label {
+        color: #a0a0a0;
+    }
+    
+    [data-testid="stMetric"] value {
+        color: #667eea;
+        font-weight: bold;
+    }
+    
+    /* Status messages */
+    .stAlert {
+        border-radius: 0.75rem;
+        border-left: 4px solid #667eea;
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 0.5rem;
+        color: #e0e0e0;
+    }
+    
+    /* Divider */
+    hr {
+        border-color: rgba(102, 126, 234, 0.3);
+        margin: 1rem 0;
+    }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #667eea;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #764ba2;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Info panel */
+    .info-panel {
+        background: rgba(102, 126, 234, 0.1);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        margin-top: 1rem;
+    }
+    
+    /* Typing indicator */
+    .typing-indicator {
+        background: rgba(102, 126, 234, 0.2);
+        border-radius: 1rem;
+        padding: 0.5rem 1rem;
+        display: inline-block;
+        font-size: 0.85rem;
+        color: #a0a0a0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-@dataclass(frozen=True)
-class ContinuumConfig:
-    """Immutable configuration for Continuum RAG system."""
+@dataclass
+class AppConfig:
+    """Application configuration"""
     max_tokens: int = 512
     temperature: float = 0.7
     embed_model: str = "all-MiniLM-L6-v2"
-    local_model: str = "google/flan-t5-small"
+    llm_model: str = "google/flan-t5-large"
     chroma_collection: str = "continuum_memory"
     top_k: int = 5
-    min_strength: float = 0.05
-    decay_lambda: float = 0.1
-    ctx_window_turns: int = 8
-    base_path: str = str(BASE_PATH)
+    retention_days: int = 30
+    max_memory_size_mb: int = 100
+    enable_fact_extraction: bool = True
+    enable_decay: bool = True
+    decay_rate: float = 0.1
 
 # ============================================================================
-# MEMORY RESULT
+# PATHS AND STORAGE
 # ============================================================================
 
-@dataclass
-class MemoryResult:
-    """Single result returned from memory retrieval."""
-    id: str
-    text: str
-    score: float
-    strength: float
-    age_days: float
-    metadata: Dict[str, Any]
-
-# ============================================================================
-# RAG MEMORY SYSTEM
-# ============================================================================
-
-class RAGMemory:
-    """Persistent memory with ChromaDB + Ebbinghaus decay."""
-
-    def __init__(self, config: ContinuumConfig):
-        self.config = config
-        self.last_decay_time = time.time()
-        self.session_added = 0
-        self.session_pruned = 0
-        
-        # Embedding model (CPU - stable on all platforms)
-        logger.info(f"Loading embedding model: {config.embed_model}")
-        self.embedder = SentenceTransformer(config.embed_model, device="cpu")
-        dim = self.embedder.get_sentence_embedding_dimension()
-        logger.success(f"Embedder ready — dimension: {dim}")
-        
-        # ChromaDB persistent client
-        self.chroma_client = chromadb.PersistentClient(
-            path=str(CHROMA_PATH),
-            settings=Settings(anonymized_telemetry=False)
-        )
-        
-        # Get or create collection
-        try:
-            self.collection = self.chroma_client.get_collection(config.chroma_collection)
-            count = self.collection.count()
-            logger.info(f"Loaded collection '{config.chroma_collection}' ({count} memories)")
-        except Exception:
-            self.collection = self.chroma_client.create_collection(
-                name=config.chroma_collection,
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info(f"Created new collection '{config.chroma_collection}'")
-        
-        self._load_stats()
+class StoragePaths:
+    """Centralized path management"""
     
-    def _load_stats(self) -> None:
-        """Load session stats from disk."""
-        stats_path = CONFIG_PATH / "stats.json"
-        if stats_path.exists():
-            try:
-                data = json.loads(stats_path.read_text())
-                self.session_added = data.get("session_added", 0)
-                self.session_pruned = data.get("session_pruned", 0)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"Could not load stats: {e}")
-    
-    def _save_stats(self) -> None:
-        """Persist session stats to disk."""
-        stats_path = CONFIG_PATH / "stats.json"
-        try:
-            stats_path.write_text(json.dumps({
-                "session_added": self.session_added,
-                "session_pruned": self.session_pruned,
-                "last_updated": time.time()
-            }, indent=2))
-        except OSError as e:
-            logger.error(f"Could not save stats: {e}")
-    
-    def add_memory(self, text: str, metadata: Dict[str, Any] = None) -> str:
-        """Embed and store a new memory."""
-        if metadata is None:
-            metadata = {}
+    def __init__(self):
+        self.base_path = Path("./continuum_data")
+        self.chroma_path = self.base_path / "chromadb"
+        self.memories_path = self.base_path / "memories"
+        self.export_path = self.base_path / "exports"
+        self.logs_path = self.base_path / "logs"
+        self.config_path = self.base_path / "config"
         
-        now = time.time()
-        memory_metadata = {
-            "timestamp": now,
-            "strength": 1.0,
-            "last_reinforced": now,
-            "source": metadata.get("source", "conversation"),
-            **{k: v for k, v in metadata.items() if k != "source"}
+        for path in [self.base_path, self.chroma_path, self.memories_path, 
+                     self.export_path, self.logs_path, self.config_path]:
+            path.mkdir(parents=True, exist_ok=True)
+    
+    def get_memory_file(self, memory_id: str) -> Path:
+        return self.memories_path / f"{memory_id}.json"
+    
+    def get_export_file(self) -> Path:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.export_path / f"continuum_export_{timestamp}.json"
+
+paths = StoragePaths()
+
+# ============================================================================
+# MEMORY MANAGEMENT SYSTEM
+# ============================================================================
+
+class MemoryMetadata:
+    """Metadata for each memory entry"""
+    
+    def __init__(self, text: str, source: str = "conversation"):
+        self.id = hashlib.md5(f"{text}{time.time()}".encode()).hexdigest()[:16]
+        self.text = text
+        self.source = source
+        self.created_at = time.time()
+        self.last_accessed = time.time()
+        self.access_count = 0
+        self.strength = 1.0
+        self.importance_score = 0.5
+        self.tags = self._extract_tags(text)
+    
+    def _extract_tags(self, text: str) -> List[str]:
+        """Extract simple tags from text"""
+        tags = []
+        keywords = ["name", "work", "live", "like", "love", "from", "job", "home"]
+        for keyword in keywords:
+            if keyword in text.lower():
+                tags.append(keyword)
+        return tags
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "text": self.text,
+            "source": self.source,
+            "created_at": self.created_at,
+            "last_accessed": self.last_accessed,
+            "access_count": self.access_count,
+            "strength": self.strength,
+            "importance_score": self.importance_score,
+            "tags": self.tags
         }
+
+class AdvancedMemorySystem:
+    """Sophisticated memory management with decay and reinforcement"""
+    
+    def __init__(self, config: AppConfig):
+        self.config = config
+        self.embedder = SentenceTransformer(config.embed_model, device="cpu")
+        self.client = chromadb.PersistentClient(path=str(paths.chroma_path))
         
+        try:
+            self.collection = self.client.get_collection(config.chroma_collection)
+        except:
+            self.collection = self.client.create_collection(
+                name=config.chroma_collection,
+                metadata={"hnsw:space": "cosine", "construction_ef": 200, "M": 64}
+            )
+        
+        self.memory_metadata: Dict[str, MemoryMetadata] = {}
+        self._load_metadata()
+    
+    def _load_metadata(self):
+        """Load memory metadata from disk"""
+        metadata_file = paths.config_path / "memory_metadata.json"
+        if metadata_file.exists():
+            try:
+                data = json.loads(metadata_file.read_text())
+                for mem_id, mem_data in data.items():
+                    meta = MemoryMetadata("", "")
+                    meta.__dict__.update(mem_data)
+                    self.memory_metadata[mem_id] = meta
+            except Exception as e:
+                st.warning(f"Could not load metadata: {e}")
+    
+    def _save_metadata(self):
+        """Save memory metadata to disk"""
+        metadata_file = paths.config_path / "memory_metadata.json"
+        data = {mid: meta.to_dict() for mid, meta in self.memory_metadata.items()}
+        metadata_file.write_text(json.dumps(data, indent=2))
+    
+    def add_memory(self, text: str, source: str = "conversation") -> str:
+        """Add a new memory with full metadata"""
+        metadata = MemoryMetadata(text, source)
         embedding = self.embedder.encode(text).tolist()
-        memory_id = f"mem_{int(now * 1000)}_{abs(hash(text)) % 10000}"
         
         try:
             self.collection.add(
-                ids=[memory_id],
+                ids=[metadata.id],
                 embeddings=[embedding],
-                metadatas=[memory_metadata],
-                documents=[text]
+                documents=[text],
+                metadatas=[{
+                    "created_at": metadata.created_at,
+                    "source": source,
+                    "strength": metadata.strength
+                }]
             )
-            self.session_added += 1
-            self._save_stats()
-            logger.info(f"Memory added [{memory_id}]: {text[:60]}")
-            return memory_id
+            self.memory_metadata[metadata.id] = metadata
+            self._save_metadata()
+            return metadata.id
         except Exception as e:
-            logger.error(f"add_memory failed: {e}")
-            raise
+            st.error(f"Failed to add memory: {e}")
+            return ""
     
-    def retrieve(self, query: str, top_k: int = None, min_strength: float = None) -> List[MemoryResult]:
-        """Retrieve relevant memories for a query."""
+    def retrieve(self, query: str, top_k: int = None) -> List[Dict[str, Any]]:
+        """Retrieve relevant memories with metadata"""
         if self.collection.count() == 0:
             return []
         
         top_k = top_k or self.config.top_k
-        min_strength = min_strength if min_strength is not None else self.config.min_strength
-        
         query_embedding = self.embedder.encode(query).tolist()
         
         try:
@@ -205,631 +363,497 @@ class RAGMemory:
                 include=["documents", "metadatas", "distances"]
             )
         except Exception as e:
-            logger.error(f"retrieve query failed: {e}")
+            st.error(f"Retrieval failed: {e}")
             return []
         
-        memories: List[MemoryResult] = []
-        if not results["ids"] or not results["ids"][0]:
-            return []
-        
+        memories = []
         for doc_id, doc, meta, dist in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0]
+            results["ids"][0], results["documents"][0],
+            results["metadatas"][0], results["distances"][0]
         ):
-            score = max(0.0, 1.0 - dist)
-            strength = float(meta.get("strength", 0.0))
-            age_days = (time.time() - float(meta.get("timestamp", time.time()))) / 86400
+            similarity = 1.0 - dist
+            metadata = self.memory_metadata.get(doc_id)
             
-            if strength >= min_strength:
-                memories.append(MemoryResult(
-                    id=doc_id,
-                    text=doc,
-                    score=score,
-                    strength=strength,
-                    age_days=age_days,
-                    metadata=meta
-                ))
-                if len(memories) >= top_k:
-                    break
+            memories.append({
+                "id": doc_id,
+                "text": doc,
+                "similarity": similarity,
+                "strength": metadata.strength if metadata else 0.5,
+                "access_count": metadata.access_count if metadata else 0,
+                "created_at": metadata.created_at if metadata else time.time()
+            })
+            
+            # Update access metrics
+            if metadata:
+                metadata.last_accessed = time.time()
+                metadata.access_count += 1
+                metadata.strength = min(1.0, metadata.strength + 0.05)
+                self._save_metadata()
         
-        logger.info(f"Retrieved {len(memories)} memories for: '{query[:50]}'")
-        return memories
+        # Sort by relevance and strength
+        memories.sort(key=lambda x: (x["similarity"], x["strength"]), reverse=True)
+        return memories[:top_k]
     
-    def reinforce(self, memory_id: str) -> None:
-        """Boost a memory's strength on re-access (capped at 1.0)."""
-        try:
-            result = self.collection.get(ids=[memory_id], include=["metadatas"])
-            if not result["ids"]:
-                logger.warning(f"reinforce: memory {memory_id} not found")
-                return
-            
-            meta = result["metadatas"][0]
-            old = float(meta.get("strength", 0.5))
-            meta["strength"] = round(min(1.0, old + 0.3), 6)
-            meta["last_reinforced"] = time.time()
-            
-            self.collection.update(ids=[memory_id], metadatas=[meta])
-            logger.info(f"Reinforced {memory_id}: {old:.3f} → {meta['strength']:.3f}")
-        except Exception as e:
-            logger.error(f"reinforce failed: {e}")
-    
-    def decay_all(self) -> int:
-        """Apply Ebbinghaus decay to all memories. Prune below min_strength."""
-        if time.time() - self.last_decay_time <= 3600:
-            logger.debug("Decay skipped — less than 1 hour since last run")
-            return 0
-        
-        if self.collection.count() == 0:
-            return 0
-        
-        logger.info("Running memory decay pass...")
-        
-        try:
-            all_mem = self.collection.get(include=["metadatas", "documents"])
-        except Exception as e:
-            logger.error(f"decay_all fetch failed: {e}")
-            return 0
-        
-        if not all_mem["ids"]:
-            return 0
-        
-        pruned = 0
-        updated = 0
-        
-        for mem_id, meta in zip(all_mem["ids"], all_mem["metadatas"]):
-            old_strength = float(meta.get("strength", 1.0))
-            last_reinforced = float(meta.get("last_reinforced", meta.get("timestamp", time.time())))
-            days_since = (time.time() - last_reinforced) / 86400
-            new_strength = old_strength * math.exp(-self.config.decay_lambda * days_since)
-            
-            if new_strength < self.config.min_strength:
-                try:
-                    self.collection.delete(ids=[mem_id])
-                    pruned += 1
-                except Exception as e:
-                    logger.error(f"Failed to prune {mem_id}: {e}")
-            else:
-                try:
-                    meta["strength"] = round(new_strength, 6)
-                    self.collection.update(ids=[mem_id], metadatas=[meta])
-                    updated += 1
-                except Exception as e:
-                    logger.error(f"Failed to update {mem_id}: {e}")
-        
-        self.session_pruned += pruned
-        self.last_decay_time = time.time()
-        self._save_stats()
-        logger.info(f"Decay done — updated: {updated}, pruned: {pruned}")
-        return pruned
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Return current memory system statistics."""
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get detailed memory statistics"""
         total = self.collection.count()
-        avg_strength = 0.0
+        if total == 0:
+            return {"total": 0, "avg_strength": 0, "active": 0, "size_kb": 0}
         
-        if total > 0:
-            try:
-                all_mem = self.collection.get(include=["metadatas"])
-                strengths = [float(m.get("strength", 0)) for m in all_mem["metadatas"]]
-                avg_strength = float(np.mean(strengths)) if strengths else 0.0
-            except Exception:
-                avg_strength = 0.0
+        strengths = [meta.strength for meta in self.memory_metadata.values()]
+        avg_strength = np.mean(strengths) if strengths else 0
         
-        size_kb = 0.0
-        if CHROMA_PATH.exists():
-            size_kb = sum(f.stat().st_size for f in CHROMA_PATH.rglob("*") if f.is_file()) / 1024
+        # Calculate storage size
+        size_bytes = sum(f.stat().st_size for f in paths.chroma_path.rglob("*") if f.is_file())
+        size_kb = size_bytes / 1024
         
         return {
             "total": total,
             "avg_strength": round(avg_strength, 3),
-            "session_added": self.session_added,
-            "session_pruned": self.session_pruned,
+            "active": sum(1 for s in strengths if s > 0.3),
             "size_kb": round(size_kb, 2),
-            "seconds_since_decay": round(time.time() - self.last_decay_time)
+            "unique_tags": len(set(tag for meta in self.memory_metadata.values() for tag in meta.tags))
         }
     
-    def get_top_facts(self, n: int = 5) -> List[Dict]:
-        """Get the strongest memories."""
-        if self.collection.count() == 0:
+    def get_top_memories(self, n: int = 10) -> List[Dict]:
+        """Get top memories by strength and access count"""
+        if not self.memory_metadata:
             return []
-        try:
-            all_mem = self.collection.get(include=["documents", "metadatas"])
-            pairs = sorted(
-                zip(all_mem["documents"], all_mem["metadatas"]),
-                key=lambda x: float(x[1].get("strength", 0)),
-                reverse=True
-            )
-            return [
-                {"text": doc, "strength": float(meta.get("strength", 0))}
-                for doc, meta in pairs[:n]
-            ]
-        except Exception:
-            return []
+        
+        sorted_memories = sorted(
+            self.memory_metadata.values(),
+            key=lambda x: (x.strength, x.access_count),
+            reverse=True
+        )
+        
+        return [{"text": m.text[:80], "strength": m.strength, "access_count": m.access_count} 
+                for m in sorted_memories[:n]]
     
-    def export_json(self) -> Path:
-        """Serialize all memories to a timestamped JSON file."""
-        filename = EXPORT_PATH / f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    def apply_decay(self):
+        """Apply memory decay based on time and access frequency"""
+        if not self.config.enable_decay:
+            return
         
-        try:
-            all_mem = self.collection.get(include=["documents", "metadatas"])
-        except Exception as e:
-            logger.error(f"export_json fetch failed: {e}")
-            raise
+        current_time = time.time()
+        decayed_count = 0
         
+        for mem_id, metadata in list(self.memory_metadata.items()):
+            days_since_access = (current_time - metadata.last_accessed) / 86400
+            decay_factor = math.exp(-self.config.decay_rate * days_since_access)
+            metadata.strength *= decay_factor
+            
+            if metadata.strength < 0.05:
+                # Remove weak memories
+                try:
+                    self.collection.delete(ids=[mem_id])
+                    del self.memory_metadata[mem_id]
+                    decayed_count += 1
+                except:
+                    pass
+        
+        if decayed_count > 0:
+            self._save_metadata()
+    
+    def export_all(self) -> Path:
+        """Export all memories to JSON"""
         export_data = {
             "export_timestamp": time.time(),
-            "total_memories": len(all_mem["ids"]),
+            "export_date": datetime.now().isoformat(),
+            "total_memories": self.collection.count(),
             "config": {
                 "embed_model": self.config.embed_model,
-                "collection": self.config.chroma_collection,
-                "decay_lambda": self.config.decay_lambda,
-                "min_strength": self.config.min_strength,
+                "collection": self.config.chroma_collection
             },
-            "memories": [
-                {"id": mid, "text": doc, "metadata": meta}
-                for mid, doc, meta in zip(all_mem["ids"], all_mem["documents"], all_mem["metadatas"])
-            ]
+            "memories": []
         }
         
-        filename.write_text(json.dumps(export_data, indent=2))
-        logger.success(f"Exported {len(export_data['memories'])} memories → {filename}")
-        return filename
+        all_mem = self.collection.get(include=["documents", "metadatas"])
+        for mem_id, doc, meta in zip(all_mem["ids"], all_mem["documents"], all_mem["metadatas"]):
+            metadata = self.memory_metadata.get(mem_id)
+            export_data["memories"].append({
+                "id": mem_id,
+                "text": doc,
+                "created_at": meta.get("created_at"),
+                "metadata": metadata.to_dict() if metadata else {}
+            })
+        
+        export_file = paths.get_export_file()
+        export_file.write_text(json.dumps(export_data, indent=2))
+        return export_file
     
-    def reset(self) -> None:
-        """Delete and recreate the ChromaDB collection."""
+    def reset_all(self):
+        """Complete memory wipe"""
         try:
-            self.chroma_client.delete_collection(self.config.chroma_collection)
-            self.collection = self.chroma_client.create_collection(
+            self.client.delete_collection(self.config.chroma_collection)
+            self.collection = self.client.create_collection(
                 name=self.config.chroma_collection,
                 metadata={"hnsw:space": "cosine"}
             )
-            self.session_added = 0
-            self.session_pruned = 0
-            self.last_decay_time = time.time()
-            self._save_stats()
-            logger.warning("Memory system reset — all memories deleted")
+            self.memory_metadata.clear()
+            self._save_metadata()
         except Exception as e:
-            logger.error(f"reset failed: {e}")
-            raise
+            st.error(f"Reset failed: {e}")
 
 # ============================================================================
-# CONVERSATION BUFFER
+# INTELLIGENT RESPONSE GENERATOR
 # ============================================================================
 
-class ConversationBuffer:
-    """Sliding window conversation history with persistence."""
+class ResponseGenerator:
+    """Handles LLM interactions with context management"""
     
-    BUFFER_PATH = CONFIG_PATH / "conversation_buffer.json"
-    
-    def __init__(self, max_turns: int = 8):
-        self.max_turns = max_turns
-        self.buffer: deque = deque(maxlen=max_turns * 2)
-        self._load_from_drive()
-    
-    def add(self, role: str, content: str) -> None:
-        self.buffer.append({"role": role, "content": content, "timestamp": time.time()})
-        logger.debug(f"Buffer add [{role}]: {content[:60]}")
-    
-    def format_for_llm(self) -> List[Dict[str, str]]:
-        return [{"role": m["role"], "content": m["content"]} for m in self.buffer]
-    
-    def save_to_drive(self) -> None:
-        try:
-            CONFIG_PATH.mkdir(parents=True, exist_ok=True)
-            self.BUFFER_PATH.write_text(json.dumps(list(self.buffer), indent=2))
-            logger.debug(f"Buffer saved ({len(self.buffer)} messages)")
-        except OSError as e:
-            logger.error(f"Buffer save failed: {e}")
-    
-    def _load_from_drive(self) -> None:
-        if not self.BUFFER_PATH.exists():
-            return
-        try:
-            data = json.loads(self.BUFFER_PATH.read_text())
-            for msg in data[-(self.max_turns * 2):]:
-                self.buffer.append(msg)
-            logger.info(f"Buffer loaded ({len(self.buffer)} messages)")
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Buffer load failed: {e}")
-    
-    def clear(self) -> None:
-        self.buffer.clear()
-        self.save_to_drive()
-        logger.info("Conversation buffer cleared")
-    
-    def __len__(self) -> int:
-        return len(self.buffer)
-
-# ============================================================================
-# FACT EXTRACTION
-# ============================================================================
-
-def extract_facts(user_msg: str, bot_msg: str) -> List[str]:
-    """Extract personal facts from conversation using regex patterns."""
-    combined = f"{user_msg} {bot_msg}".lower().strip()
-    
-    patterns = [
-        r"my name is (\w+)",
-        r"i(?:'m| am) (?:called )?(\w+)",
-        r"i (?:like|love|enjoy|prefer) (.+?)(?:\.|,|$)",
-        r"i (?:work|worked) (?:at|for) (.+?)(?:\.|,|$)",
-        r"i live (?:in|at) (.+?)(?:\.|,|$)",
-        r"i(?:'m| am) (?:a |an )?(\w[\w\s]{2,20}?) (?:who|by|at|in|and|but)",
-        r"i have (?:a |an )?(.+?)(?:\.|,|$)",
-        r"i(?:'ve| have) been (.+?)(?:\.|,|$)",
-        r"my (.+?) is (.+?)(?:\.|,|$)",
-        r"i(?:'m| am) from (.+?)(?:\.|,|$)",
-    ]
-    
-    seen: set = set()
-    facts: List[str] = []
-    
-    for pattern in patterns:
-        for match in re.findall(pattern, combined):
-            fact = " ".join(match).strip() if isinstance(match, tuple) else match.strip()
-            fact = re.sub(r"\s+", " ", fact)
-            
-            if len(fact) < 3 or fact in seen:
-                continue
-            seen.add(fact)
-            
-            if re.fullmatch(r"[a-z]+", fact) and len(fact) < 20:
-                facts.append(f"User's name is {fact.capitalize()}")
-            elif any(w in pattern for w in ["like", "love", "enjoy", "prefer"]):
-                facts.append(f"User enjoys {fact}")
-            elif "live" in pattern:
-                facts.append(f"User lives in {fact}")
-            elif "work" in pattern:
-                facts.append(f"User works at {fact}")
-            elif "from" in pattern:
-                facts.append(f"User is from {fact}")
-            else:
-                facts.append(f"User mentioned: {fact}")
-            
-            if len(facts) >= 3:
-                break
-        if len(facts) >= 3:
-            break
-    
-    logger.info(f"Extracted {len(facts)} facts")
-    return facts
-
-# ============================================================================
-# LOCAL LLM CLIENT (NO API KEY)
-# ============================================================================
-
-class LocalLLMClient:
-    """Runs local Hugging Face model - no API key needed."""
-    
-    def __init__(self, config: ContinuumConfig):
+    def __init__(self, config: AppConfig):
         self.config = config
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.conversation_history: List[Dict[str, str]] = []
+        self.max_history = 10
         
-        logger.info(f"Loading local model: {config.local_model} on {self.device}...")
+        @st.cache_resource
+        def load_model():
+            return pipeline(
+                "text2text-generation",
+                model=config.llm_model,
+                device=-1,
+                model_kwargs={"torch_dtype": "float32"}
+            )
         
-        self.tokenizer = AutoTokenizer.from_pretrained(config.local_model)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(config.local_model)
-        self.model.eval()
-        
-        logger.success(f"Local model loaded on {self.device}")
+        self.model = load_model()
     
-    def build_prompt(self, user_msg: str, memories: List[MemoryResult], history: List[Dict[str, str]]) -> str:
-        """Construct the prompt with memory context."""
-        context = ""
-        if memories:
-            facts = "\n".join(f"- {m.text}" for m in memories[:3])
-            context = f"\n\nRelevant information I remember:\n{facts}\n"
-        
-        # Build conversation history
-        conv_history = ""
-        for msg in history[-4:]:  # Last 4 messages
-            conv_history += f"{msg['role']}: {msg['content']}\n"
-        
-        prompt = f"""You are Continuum, a helpful AI assistant with persistent memory.
-You remember facts about the user across conversations.
-Be warm, concise, and helpful.{context}
-
-{conv_history}User: {user_msg}
-Assistant:"""
-        
-        return prompt
+    def add_to_history(self, role: str, content: str):
+        """Add message to conversation history"""
+        self.conversation_history.append({"role": role, "content": content})
+        if len(self.conversation_history) > self.max_history * 2:
+            self.conversation_history = self.conversation_history[-self.max_history * 2:]
     
-    def generate(self, prompt: str) -> str:
-        """Generate a response token by token."""
+    def clear_history(self):
+        """Clear conversation history"""
+        self.conversation_history = []
+    
+    def build_context(self, query: str, memories: List[Dict]) -> str:
+        """Build intelligent context from memories"""
+        if not memories:
+            return query
+        
+        context_parts = ["Relevant information from my memory:"]
+        for i, mem in enumerate(memories[:3], 1):
+            context_parts.append(f"{i}. {mem['text']}")
+        
+        context = "\n".join(context_parts)
+        return f"{context}\n\nUser question: {query}"
+    
+    def generate_response(self, query: str, memories: List[Dict]) -> str:
+        """Generate a thoughtful response using context"""
         try:
-            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            context = self.build_context(query, memories)
             
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=self.config.max_tokens,
-                    temperature=self.config.temperature,
-                    do_sample=True,
-                    top_p=0.95
-                )
+            prompt = f"""You are Continuum, a warm, helpful AI assistant with persistent memory.
+You remember past conversations and use that information naturally.
+Be concise, friendly, and conversational.
+
+{context}
+
+Your response:"""
             
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            return response.strip()
+            result = self.model(
+                prompt,
+                max_length=self.config.max_tokens,
+                temperature=self.config.temperature,
+                do_sample=True,
+                top_p=0.95,
+                repetition_penalty=1.1
+            )
+            
+            response = result[0]['generated_text'].strip()
+            
+            if not response or len(response) < 5:
+                response = "I understand. Could you tell me more about that?"
+            
+            return response
             
         except Exception as e:
-            logger.error(f"Generation error: {e}")
-            return f"I'm having trouble generating a response. Please try again."
+            return f"I appreciate you sharing that. Let me think about what you said."
 
 # ============================================================================
-# RESPONSE FUNCTION
+# SMART FACT EXTRACTION
 # ============================================================================
 
-def respond(
-    message: str,
-    history: List[List[Optional[str]]],
-    top_k: int,
-    decay_rate: float,
-    memory: RAGMemory,
-    conv_buffer: ConversationBuffer,
-    llm: LocalLLMClient,
-    config: ContinuumConfig
-):
-    """Stream response. history format: [[user, bot], ...]"""
-    if not message or not message.strip():
-        yield history
-        return
+class FactExtractor:
+    """Intelligent fact extraction from conversations"""
     
-    # Decay (guarded — max once/hour)
-    memory.decay_all()
+    PATTERNS = {
+        "name": [
+            r"(?:my|our) name is (\w+)",
+            r"i(?:'m| am) (\w+)",
+            r"call me (\w+)",
+            r"you can call me (\w+)"
+        ],
+        "location": [
+            r"i (?:live|stay|reside) (?:in|at) (.+?)(?:\.|,|$)",
+            r"i(?:'m| am) from (.+?)(?:\.|,|$)",
+            r"from (.+?)(?:\.|,|$)"
+        ],
+        "work": [
+            r"i (?:work|job|employed) (?:at|for|as) (.+?)(?:\.|,|$)",
+            r"i(?:'m| am) (?:a|an) (.+?) (?:at|for|in|and|\.)",
+            r"my job is (.+?)(?:\.|,|$)"
+        ],
+        "interest": [
+            r"i (?:like|love|enjoy|prefer) (.+?)(?:\.|,|$)",
+            r"(?:my|our) (?:hobby|passion|interest) is (.+?)(?:\.|,|$)"
+        ],
+        "preference": [
+            r"i (?:prefer|favor|like) (.+?)(?:\.|,|$)",
+            r"(?:my|our) favorite (.+?) is (.+?)(?:\.|,|$)"
+        ]
+    }
     
-    # Retrieve + reinforce
-    memories = memory.retrieve(message, top_k=int(top_k), min_strength=config.min_strength)
-    for m in memories:
-        memory.reinforce(m.id)
+    @classmethod
+    def extract_facts(cls, user_message: str, bot_response: str) -> List[Dict[str, Any]]:
+        """Extract structured facts from conversation"""
+        combined = f"{user_message} {bot_response}".lower()
+        facts = []
+        
+        for category, patterns in cls.PATTERNS.items():
+            for pattern in patterns:
+                matches = re.findall(pattern, combined, re.IGNORECASE)
+                for match in matches:
+                    fact_text = match if isinstance(match, str) else match[0]
+                    fact_text = fact_text.strip().capitalize()
+                    
+                    if len(fact_text) > 3 and len(fact_text) < 100:
+                        facts.append({
+                            "category": category,
+                            "value": fact_text,
+                            "statement": cls._format_fact(category, fact_text)
+                        })
+        
+        # Remove duplicates
+        unique_facts = []
+        seen = set()
+        for fact in facts:
+            if fact["statement"] not in seen:
+                seen.add(fact["statement"])
+                unique_facts.append(fact)
+        
+        return unique_facts[:5]
     
-    # Build LLM history from Gradio history format
-    llm_history: List[Dict[str, str]] = []
-    for user_turn, bot_turn in history:
-        if user_turn and isinstance(user_turn, str):
-            llm_history.append({"role": "user", "content": user_turn})
-        if bot_turn and isinstance(bot_turn, str):
-            llm_history.append({"role": "assistant", "content": bot_turn})
+    @classmethod
+    def _format_fact(cls, category: str, value: str) -> str:
+        """Format fact into natural language"""
+        templates = {
+            "name": f"User's name is {value}",
+            "location": f"User lives in {value}",
+            "work": f"User works at/with {value}",
+            "interest": f"User enjoys {value}",
+            "preference": f"User prefers {value}"
+        }
+        return templates.get(category, f"User mentioned: {value}")
+
+# ============================================================================
+# UI COMPONENTS
+# ============================================================================
+
+class UIComponents:
+    """Reusable UI components"""
     
-    # Also include buffer context
-    conv_buffer.add("user", message)
+    @staticmethod
+    def render_header():
+        st.markdown("""
+        <div class="main-header">
+            <h1>🧠 Continuum RAG</h1>
+            <p>Persistent Memory Chatbot with Intelligent Recall • No API Keys • Free Forever</p>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Build prompt
-    prompt = llm.build_prompt(message, memories, llm_history)
+    @staticmethod
+    def render_sidebar_stats(memory_system: AdvancedMemorySystem):
+        with st.sidebar:
+            st.markdown("### 📊 Memory Statistics")
+            
+            stats = memory_system.get_statistics()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Memories", stats["total"])
+                st.metric("Active Memories", stats["active"])
+            with col2:
+                st.metric("Avg Strength", f"{stats['avg_strength']:.2f}")
+                st.metric("Storage", f"{stats['size_kb']:.0f} KB")
+            
+            if stats["total"] > 0:
+                st.markdown("---")
+                st.markdown("### 🔥 Top Memories")
+                top_memories = memory_system.get_top_memories(5)
+                for mem in top_memories:
+                    strength_color = "🟢" if mem["strength"] > 0.6 else "🟡" if mem["strength"] > 0.3 else "🔴"
+                    st.caption(f"{strength_color} {mem['text'][:50]}...")
+                    st.caption(f"   Strength: {mem['strength']:.2f} | Access: {mem['access_count']}")
+            
+            st.markdown("---")
+            st.markdown("### 🛠️ Controls")
+    
+    @staticmethod
+    def render_settings():
+        with st.sidebar.expander("⚙️ Advanced Settings", expanded=False):
+            top_k = st.slider("Memory Retrieval (Top-K)", 1, 10, 5, 
+                             help="Number of memories to retrieve for context")
+            temperature = st.slider("Response Creativity", 0.0, 1.5, 0.7, 0.05,
+                                   help="Higher = more creative, Lower = more focused")
+            enable_decay = st.checkbox("Enable Memory Decay", True,
+                                      help="Memories fade naturally over time")
+            
+            return {
+                "top_k": top_k,
+                "temperature": temperature,
+                "enable_decay": enable_decay
+            }
+    
+    @staticmethod
+    def render_action_buttons():
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            export_clicked = st.button("💾 Export Memories", use_container_width=True)
+        with col2:
+            reset_clicked = st.button("🗑️ Reset Memory", use_container_width=True)
+        with col3:
+            clear_clicked = st.button("💬 Clear Chat", use_container_width=True)
+        
+        return export_clicked, reset_clicked, clear_clicked
+    
+    @staticmethod
+    def render_typing_indicator():
+        return st.markdown('<div class="typing-indicator">🧠 Continuum is thinking...</div>', 
+                          unsafe_allow_html=True)
+
+# ============================================================================
+# MAIN APPLICATION
+# ============================================================================
+
+def initialize_session():
+    """Initialize all session state variables"""
+    if "initialized" not in st.session_state:
+        st.session_state.config = AppConfig()
+        st.session_state.memory_system = AdvancedMemorySystem(st.session_state.config)
+        st.session_state.response_generator = ResponseGenerator(st.session_state.config)
+        st.session_state.messages = []
+        st.session_state.fact_extractor = FactExtractor()
+        st.session_state.initialized = True
+        st.session_state.last_decay_time = time.time()
+
+def process_message(message: str, memory_system: AdvancedMemorySystem, 
+                    response_gen: ResponseGenerator, settings: dict) -> tuple:
+    """Process user message and generate response"""
+    
+    # Apply memory decay periodically
+    if time.time() - st.session_state.last_decay_time > 3600:
+        memory_system.apply_decay()
+        st.session_state.last_decay_time = time.time()
+    
+    # Retrieve relevant memories
+    memories = memory_system.retrieve(message, top_k=settings.get("top_k", 5))
     
     # Generate response
-    full_response = llm.generate(prompt)
+    response = response_gen.generate_response(message, memories)
     
-    # Post-generation updates
-    if full_response and not full_response.startswith("[Error"):
-        conv_buffer.add("assistant", full_response)
-        conv_buffer.save_to_drive()
-        for fact in extract_facts(message, full_response):
-            memory.add_memory(fact, {"source": "conversation"})
+    # Extract and store facts
+    if st.session_state.config.enable_fact_extraction:
+        facts = FactExtractor.extract_facts(message, response)
+        for fact in facts:
+            memory_system.add_memory(fact["statement"], source="extracted_fact")
     
-    # Update history
-    history.append((message, full_response))
-    yield history
-
-def do_reset(memory: RAGMemory, conv_buffer: ConversationBuffer) -> List:
-    memory.reset()
-    conv_buffer.clear()
-    return []
-
-def do_export(memory: RAGMemory) -> str:
-    try:
-        return str(memory.export_json())
-    except Exception as e:
-        return f"Export failed: {e}"
+    # Update conversation history
+    response_gen.add_to_history("user", message)
+    response_gen.add_to_history("assistant", response)
+    
+    return response, memories
 
 # ============================================================================
-# CSS
-# ============================================================================
-
-CSS = """
-body, .gradio-container {
-    background: #0d1117 !important;
-    font-family: 'Inter', sans-serif !important;
-}
-.sidebar-card {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(124,58,237,0.25) !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-    backdrop-filter: blur(8px) !important;
-}
-.chatbot {
-    border: 1px solid rgba(124,58,237,0.2) !important;
-    border-radius: 12px !important;
-}
-button.primary {
-    background: linear-gradient(135deg,#6d28d9,#7c3aed) !important;
-    border: none !important;
-}
-button.stop {
-    background: rgba(220,38,38,0.8) !important;
-}
-textarea, input[type=text] {
-    background: rgba(255,255,255,0.05) !important;
-    border: 1px solid rgba(124,58,237,0.3) !important;
-    color: #e2e8f0 !important;
-    border-radius: 8px !important;
-}
-textarea:focus, input[type=text]:focus {
-    border-color: #7c3aed !important;
-    box-shadow: 0 0 0 2px rgba(124,58,237,0.2) !important;
-}
-"""
-
-# ============================================================================
-# SIDEBAR HELPERS
-# ============================================================================
-
-def get_stats_md(memory: RAGMemory) -> str:
-    s = memory.get_stats()
-    return (
-        f"### 🧠 Memory Stats\n"
-        f"- **Total:** `{s['total']}`\n"
-        f"- **Avg Strength:** `{s['avg_strength']:.2f}`\n"
-        f"- **Added:** `{s['session_added']}`\n"
-        f"- **Pruned:** `{s['session_pruned']}`\n"
-        f"- **Size:** `{s['size_kb']:.1f} KB`\n"
-    )
-
-def get_facts_md(memory: RAGMemory) -> str:
-    facts = memory.get_top_facts(5)
-    if not facts:
-        return "### 📌 Top Facts\n*No memories yet — start chatting!*"
-    lines = "\n".join(
-        f"- `{f['strength']:.2f}` {f['text'][:55]}{'...' if len(f['text']) > 55 else ''}"
-        for f in facts
-    )
-    return f"### 📌 Top Facts\n{lines}"
-
-# ============================================================================
-# MAIN
+# MAIN APP RENDER
 # ============================================================================
 
 def main():
-    logger.info("Starting Continuum RAG Chatbot...")
+    initialize_session()
     
-    # Initialize components
-    config = ContinuumConfig()
-    memory = RAGMemory(config)
-    conv_buffer = ConversationBuffer(max_turns=config.ctx_window_turns)
-    llm = LocalLLMClient(config)
+    # Render UI
+    UIComponents.render_header()
     
-    logger.success("All components initialized!")
+    # Sidebar
+    UIComponents.render_sidebar_stats(st.session_state.memory_system)
+    settings = UIComponents.render_settings()
+    export_clicked, reset_clicked, clear_clicked = UIComponents.render_action_buttons()
     
-    # Gradio theme
-    theme = gr.themes.Base(
-        primary_hue="purple",
-        neutral_hue="slate",
-        font=gr.themes.GoogleFont("Inter"),
-    )
+    # Handle actions
+    if export_clicked:
+        with st.spinner("Exporting memories..."):
+            export_file = st.session_state.memory_system.export_all()
+            st.success(f"✅ Exported to {export_file}")
     
-    # Build UI
-    with gr.Blocks(css=CSS, theme=theme, title="Continuum") as demo:
+    if reset_clicked:
+        with st.spinner("Resetting memory system..."):
+            st.session_state.memory_system.reset_all()
+            st.session_state.response_generator.clear_history()
+            st.session_state.messages = []
+            st.success("🧠 Memory system has been reset!")
+            time.sleep(1)
+            st.rerun()
+    
+    if clear_clicked:
+        st.session_state.response_generator.clear_history()
+        st.session_state.messages = []
+        st.rerun()
+    
+    # Display chat interface
+    st.markdown("### 💬 Conversation")
+    
+    # Show welcome message if no messages
+    if not st.session_state.messages:
+        with st.chat_message("assistant", avatar="🧠"):
+            st.markdown("""Hello! I'm **Continuum**, your persistent memory assistant.
+
+I remember our conversations and learn about you over time. Try telling me:
+
+- *"My name is Sarah"*
+- *"I work as a software engineer"*
+- *"I love hiking and photography"*
+
+Then ask me *"What do you know about me?"* and watch me remember! ✨""")
+    
+    # Display chat history
+    for message in st.session_state.messages:
+        avatar = "👤" if message["role"] == "user" else "🧠"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["content"])
+    
+    # Chat input
+    if prompt := st.chat_input("Type your message here..."):
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
         
-        gr.Markdown(
-            "<div style='text-align:center;padding:16px;"
-            "background:linear-gradient(135deg,#6d28d9,#7c3aed);"
-            "border-radius:12px;margin-bottom:16px'>"
-            "<h1 style='color:white;margin:0'>🧠 Continuum</h1>"
-            "<p style='color:rgba(255,255,255,0.85);margin:4px 0 0'>"
-            "Persistent RAG Chatbot · Local LLM · ChromaDB · No API Keys</p></div>"
-        )
-        
-        with gr.Row():
-            # Sidebar
-            with gr.Column(scale=1, elem_classes=["sidebar-card"]):
-                stats_display = gr.Markdown(get_stats_md(memory))
-                facts_display = gr.Markdown(get_facts_md(memory))
-                
-                with gr.Accordion("⚙️ Settings", open=False):
-                    top_k_slider = gr.Slider(
-                        1, 10, value=5, step=1,
-                        label="Top-K Retrieval",
-                        info="Memories retrieved per message"
-                    )
-                    decay_slider = gr.Slider(
-                        0.01, 0.5, value=0.1, step=0.01,
-                        label="Decay Rate (λ)",
-                        info="Higher = faster forgetting"
-                    )
-                
-                with gr.Row():
-                    reset_btn = gr.Button("🗑️ Reset Memory", variant="stop", size="sm")
-                    export_btn = gr.Button("💾 Export", variant="secondary", size="sm")
-                
-                export_out = gr.Textbox(label="Export Path", interactive=False, visible=True)
-            
-            # Chat area
-            with gr.Column(scale=3):
-                chatbot = gr.Chatbot(
-                    height=500,
-                    show_label=False,
-                    elem_classes=["chatbot"],
-                    bubble_full_width=False,
+        # Generate and display response
+        with st.chat_message("assistant", avatar="🧠"):
+            with st.spinner("💭 Thinking..."):
+                response, memories = process_message(
+                    prompt,
+                    st.session_state.memory_system,
+                    st.session_state.response_generator,
+                    settings
                 )
                 
-                with gr.Row():
-                    msg_box = gr.Textbox(
-                        scale=4,
-                        placeholder="Type a message… e.g. 'My name is Alex, I enjoy Python'",
-                        lines=2,
-                        show_label=False,
-                    )
-                    send_btn = gr.Button("Send ▶", variant="primary", scale=1)
+                # Show retrieved memories in expander
+                if memories:
+                    with st.expander(f"🔍 Retrieved {len(memories)} memories", expanded=False):
+                        for mem in memories:
+                            strength_pct = int(mem['strength'] * 100)
+                            st.caption(f"📝 {mem['text'][:100]}...")
+                            st.progress(strength_pct / 100, text=f"Strength: {strength_pct}%")
                 
-                with gr.Row():
-                    clear_btn = gr.Button("🗑️ Clear Chat", size="sm")
-                    gr.Markdown(
-                        "<div style='color:#64748b;font-size:0.78em;padding-top:6px'>"
-                        "Flan-T5-small · ChromaDB · sentence-transformers · No API Keys</div>"
-                    )
+                st.markdown(response)
         
-        # Event wiring - using closures to capture current instances
-        def make_respond():
-            return lambda msg, hist, top_k, decay: respond(
-                msg, hist, top_k, decay, memory, conv_buffer, llm, config
-            )
+        # Add assistant message
+        st.session_state.messages.append({"role": "assistant", "content": response})
         
-        def make_reset():
-            return lambda: do_reset(memory, conv_buffer)
-        
-        def make_export():
-            return lambda: do_export(memory)
-        
-        def update_stats_facts():
-            return get_stats_md(memory), get_facts_md(memory)
-        
-        send_btn.click(
-            make_respond(),
-            inputs=[msg_box, chatbot, top_k_slider, decay_slider],
-            outputs=[chatbot],
-            queue=True,
-        ).then(lambda: "", outputs=msg_box).then(update_stats_facts, outputs=[stats_display, facts_display])
-        
-        msg_box.submit(
-            make_respond(),
-            inputs=[msg_box, chatbot, top_k_slider, decay_slider],
-            outputs=[chatbot],
-            queue=True,
-        ).then(lambda: "", outputs=msg_box).then(update_stats_facts, outputs=[stats_display, facts_display])
-        
-        clear_btn.click(
-            lambda: (conv_buffer.clear(), []),
-            outputs=[chatbot],
-        ).then(update_stats_facts, outputs=[stats_display, facts_display])
-        
-        reset_btn.click(
-            make_reset(),
-            outputs=[chatbot],
-        ).then(update_stats_facts, outputs=[stats_display, facts_display])
-        
-        export_btn.click(make_export(), outputs=export_out)
-        
-        demo.load(update_stats_facts, outputs=[stats_display, facts_display])
-    
-    # Launch
-    demo.queue(default_concurrency_limit=1)
-    
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--server-name", default="0.0.0.0")
-    parser.add_argument("--server-port", type=int, default=7860)
-    parser.add_argument("--share", action="store_true")
-    args = parser.parse_args()
-    
-    demo.launch(
-        server_name=args.server_name,
-        server_port=args.server_port,
-        share=args.share,
-        debug=False,
-        show_error=True
-    )
+        # Rerun to update UI
+        st.rerun()
 
 if __name__ == "__main__":
     main()
