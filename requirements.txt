@@ -1,12 +1,6 @@
 numpy==1.26.4
 chromadb>=0.4.22
-gradio==4.19.2
 sentence-transformers==2.7.0
 transformers==4.41.0
-accelerate==0.30.0
-python-dotenv==1.0.1
-loguru==0.7.2
-matplotlib==3.8.4
-networkx==3.3
-seaborn==0.13.2
 torch>=2.0.0
+streamlit>=1.32.0
