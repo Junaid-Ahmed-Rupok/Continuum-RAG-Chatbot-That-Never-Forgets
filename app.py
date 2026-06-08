@@ -22,50 +22,39 @@ st.markdown("""
     .header h1 { color: white; margin: 0; }
     .header p { color: rgba(255,255,255,0.85); margin: 0.5rem 0 0; }
     
-    /* Fix for chat messages - MAKE TEXT VISIBLE */
     [data-testid="stChatMessage"] {
         border-radius: 1rem;
         margin-bottom: 0.5rem;
         padding: 0.75rem;
     }
     
-    /* User message - light purple background, white text */
     [data-testid="stChatMessage"][data-testid="user"] {
         background: linear-gradient(135deg, #6d28d9, #7c3aed) !important;
         border: none !important;
         color: white !important;
     }
     
-    /* Assistant message - dark gray background, WHITE text */
     [data-testid="stChatMessage"][data-testid="assistant"] {
         background: #1a1a2e !important;
         border: 1px solid #3a3a5e !important;
         color: white !important;
     }
     
-    /* Make ALL text in chat white */
     [data-testid="stChatMessage"] p,
     [data-testid="stChatMessage"] div,
     [data-testid="stChatMessage"] span {
         color: white !important;
     }
     
-    /* Fix markdown bold text in assistant messages */
     [data-testid="stChatMessage"] strong {
         color: #a78bfa !important;
     }
     
-    /* Sidebar */
     [data-testid="stSidebar"] {
         background: #1a1a2e;
         color: white;
     }
     
-    [data-testid="stSidebar"] .stMarkdown {
-        color: white;
-    }
-    
-    /* Metrics */
     [data-testid="stMetric"] {
         background: #1a1a2e;
         border: 1px solid #3a3a5e;
@@ -81,7 +70,6 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Buttons */
     .stButton button {
         background: linear-gradient(135deg, #6d28d9, #7c3aed);
         color: white;
@@ -89,18 +77,10 @@ st.markdown("""
         border-radius: 0.5rem;
     }
     
-    /* Caption text */
     .stCaption {
         color: #a1a1b0;
     }
     
-    /* Success message */
-    .stSuccess {
-        background: #22c55e;
-        color: white;
-    }
-    
-    /* Hide branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -113,7 +93,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Simple file-based memory system
 class SimpleMemory:
     def __init__(self):
         self.file_path = Path("./memories.json")
@@ -179,48 +158,53 @@ with st.sidebar:
     st.caption("🧠 Continuum RAG v1.0")
     st.caption("⚡ Local & Private")
 
-# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
 if prompt := st.chat_input("Type your message here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
     with st.chat_message("assistant"):
-        # Retrieve relevant memories
         memories = st.session_state.memory.retrieve(prompt)
         
-        # Check for name memory
         remembered_name = None
         for mem in st.session_state.memory.memories:
             if mem["text"].startswith("User's name is"):
                 remembered_name = mem["text"].replace("User's name is ", "")
                 break
         
-        # Build response
-        if remembered_name and "name" in prompt.lower():
-            response = f"I remember! Your name is **{remembered_name}**."
-        elif memories:
-            context = "\n".join([f"• {m['text']}" for m in memories[:3]])
-            response = f"**I remember:**\n{context}\n\n**About your message:** I'll remember our conversation."
+        lower_prompt = prompt.lower()
+        
+        if remembered_name and "my name" in lower_prompt:
+            response = f"Your name is **{remembered_name}**! I remember."
+        elif "what do you do" in lower_prompt or "what can you do" in lower_prompt or "your purpose" in lower_prompt:
+            response = "I'm Continuum, a memory chatbot. I remember our conversations and learn about you. Tell me your name, interests, or anything you want me to remember!"
+        elif "who are you" in lower_prompt or "what are you" in lower_prompt:
+            response = "I'm Continuum - your persistent memory assistant. I remember what you tell me across conversations. Completely free, no API keys needed!"
+        elif "how are you" in lower_prompt:
+            response = "I'm doing great! Thanks for asking. How can I help you today?"
+        elif "thank" in lower_prompt:
+            response = "You're welcome! Glad I could help."
+        elif "hello" in lower_prompt or "hi" in lower_prompt or "hey" in lower_prompt:
+            response = "Hello! Tell me about yourself - your name, interests, or anything you'd like me to remember."
+        elif "your name" in lower_prompt:
+            response = "I'm Continuum! Nice to meet you."
+        elif "remember" in lower_prompt and remembered_name:
+            response = f"I remember that your name is **{remembered_name}**. What else would you like me to know?"
         else:
-            response = "I'm listening! Tell me about yourself, and I'll remember our conversation."
+            response = "Thanks for telling me! I'll remember that. Is there anything specific you'd like to know or share?"
         
         st.markdown(response)
         
-        # Store in memory
         st.session_state.memory.add(prompt, source="user")
         
-        # Extract simple facts
-        if "my name is" in prompt.lower():
-            name_match = re.search(r"my name is (\w+)", prompt.lower())
+        if "my name is" in lower_prompt:
+            name_match = re.search(r"my name is (\w+)", lower_prompt)
             if name_match:
                 name = name_match.group(1).capitalize()
-                # Remove old name memory if exists
                 st.session_state.memory.memories = [m for m in st.session_state.memory.memories if not m["text"].startswith("User's name is")]
                 st.session_state.memory.add(f"User's name is {name}", source="fact")
                 st.success(f"📝 I'll remember your name: **{name}**")
