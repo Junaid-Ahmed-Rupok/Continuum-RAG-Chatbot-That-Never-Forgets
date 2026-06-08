@@ -1,4 +1,4 @@
-markdown
+```markdown
 <div align="center">
 
 # 🧠 Continuum
@@ -32,7 +32,7 @@ markdown
 
 ## ✨ Features
 
-<tr>
+<table>
 <td width="50%">
 
 ### 🧠 Persistent Memory
@@ -150,7 +150,8 @@ User Input
 
 <div align="center">
 
-</td>
+<table>
+<tr>
 <td align="center" width="50%">
 <img src="images/memory_decay_curve.png" width="100%"/>
 <b>Ebbinghaus Memory Decay Curves</b><br/>
@@ -214,6 +215,33 @@ Runtime → Change runtime type → T4 GPU → Save
 
 Once Cell 4 runs, a Gradio public URL appears. Open it and start chatting.  
 Tell it your name, job, hobbies — it will remember them next session.
+
+---
+
+## 🚀 Deployment
+
+### Run with `app.py`
+
+```bash
+# Clone the repository
+git clone https://github.com/Junaid-Ahmed-Rupok/Continuum-RAG-Chatbot-That-Never-Forgets.git
+cd Continuum-RAG-Chatbot-That-Never-Forgets
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the app
+python app.py
+```
+
+### Deployment Options
+
+| Platform | Command | Cost |
+|----------|---------|------|
+| **Local GPU** | `python app.py` | Free |
+| **Hugging Face Spaces** | Push to HF Space | Free tier available |
+| **RunPod** | `python app.py --server-name 0.0.0.0` | ~$0.79/hr |
+| **Modal** | `modal deploy deploy.py` | Serverless |
 
 ---
 
@@ -387,4 +415,3 @@ This project is licensed under the **MIT License** — see [LICENSE](LICENSE) fo
 
 </div>
 ```
-
