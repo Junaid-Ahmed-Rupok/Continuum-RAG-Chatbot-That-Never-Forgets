@@ -75,10 +75,23 @@ st.markdown("""
         color: white;
         border: none;
         border-radius: 0.5rem;
+        cursor: pointer;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(124,58,237,0.3);
     }
     
     .stCaption {
         color: #a1a1b0;
+    }
+    
+    .stSuccess {
+        background: #22c55e20;
+        border-left: 3px solid #22c55e;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
     }
     
     #MainMenu {visibility: hidden;}
@@ -89,7 +102,7 @@ st.markdown("""
 st.markdown("""
 <div class="header">
     <h1>🧠 Continuum RAG</h1>
-    <p>Persistent Memory Assistant · Precise · No API Keys</p>
+    <p>Intelligent Memory Assistant · Precise · No API Keys · Free Forever</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -119,6 +132,11 @@ class Memory:
     def get_all_facts(self):
         return self.data["facts"]
     
+    def delete_fact(self, key):
+        if key in self.data["facts"]:
+            del self.data["facts"][key]
+            self._save()
+    
     def add_conversation(self, user_msg, bot_msg):
         self.data["conversations"].append({
             "user": user_msg,
@@ -137,169 +155,264 @@ if "memory" not in st.session_state:
     st.session_state.messages = []
 
 with st.sidebar:
-    st.markdown("### 🧠 Memory")
+    st.markdown("### 🧠 Memory Dashboard")
     st.metric("Facts Stored", st.session_state.memory.count())
     
     st.markdown("---")
-    st.markdown("#### 📌 Remembered Facts")
+    st.markdown("#### 📌 Stored Facts")
     facts = st.session_state.memory.get_all_facts()
     
     if facts:
         for key, value in facts.items():
-            st.caption(f"• {key}: {value}")
+            st.markdown(f"**{key}:** {value}")
     else:
-        st.caption("*No facts yet*")
+        st.caption("*No facts stored yet*")
+        st.caption("Try: 'My name is John'")
     
     st.markdown("---")
-    if st.button("🗑️ Reset Memory", use_container_width=True):
-        st.session_state.memory = Memory()
-        st.session_state.messages = []
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Reset", use_container_width=True):
+            st.session_state.memory = Memory()
+            st.session_state.messages = []
+            st.rerun()
+    with col2:
+        if st.button("💬 Clear Chat", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
     
     st.markdown("---")
-    st.caption("Continuum v1.0")
+    st.caption("💡 Tips:")
+    st.caption("• 'My name is X'")
+    st.caption("• 'I work as X'")
+    st.caption("• 'I like X'")
+    st.caption("• 'What do you know?'")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-def extract_facts(text, memory):
+def extract_and_store_facts(text, memory):
     lower = text.lower()
-    updates = []
+    stored = []
     
+    # Name extraction
     name_patterns = [
-        (r"my name is (\w+)", "Name"),
-        (r"i(?:'m| am) (\w+)", "Name"),
-        (r"call me (\w+)", "Name")
+        r"my name is (\w+)",
+        r"i(?:'m| am) called (\w+)",
+        r"call me (\w+)",
+        r"i(?:'m| am) (\w+)"
     ]
+    for pattern in name_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            name = match.group(1).capitalize()
+            if len(name) >= 2 and name.lower() not in ["i", "me", "my", "a"]:
+                memory.add_fact("Name", name)
+                stored.append(("Name", name))
+            break
     
+    # Job extraction
     job_patterns = [
-        (r"i (?:work as|am a|am an) (\w+)", "Job"),
-        (r"my job is (\w+)", "Job")
+        r"i (?:work as|am a|am an) (\w+)",
+        r"my job is (\w+)",
+        r"i(?:'m| am) (?:a|an) (\w+)(?: engineer|developer|designer|manager|teacher|doctor|lawyer|writer|artist|designer)"
     ]
+    for pattern in job_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            job = match.group(1).capitalize()
+            if len(job) >= 2:
+                memory.add_fact("Job", job)
+                stored.append(("Job", job))
+            break
     
+    # Hobby extraction
     hobby_patterns = [
-        (r"i (?:like|love|enjoy) (\w+)", "Hobby"),
-        (r"my hobby is (\w+)", "Hobby")
+        r"i (?:like|love|enjoy) (\w+)",
+        r"my hobby is (\w+)",
+        r"i(?:'m| am) into (\w+)"
     ]
+    for pattern in hobby_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            hobby = match.group(1).capitalize()
+            if len(hobby) >= 2:
+                memory.add_fact("Hobby", hobby)
+                stored.append(("Hobby", hobby))
+            break
     
+    # Location extraction
     location_patterns = [
-        (r"i live in (\w+)", "Location"),
-        (r"i(?:'m| am) from (\w+)", "Location")
+        r"i live in (\w+)",
+        r"i(?:'m| am) from (\w+)",
+        r"from (\w+)"
     ]
-    
-    for pattern, key in name_patterns:
+    for pattern in location_patterns:
         match = re.search(pattern, lower)
         if match:
-            value = match.group(1).capitalize()
-            memory.add_fact(key, value)
-            updates.append((key, value))
+            location = match.group(1).capitalize()
+            if len(location) >= 2:
+                memory.add_fact("Location", location)
+                stored.append(("Location", location))
             break
     
-    for pattern, key in job_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            value = match.group(1).capitalize()
-            memory.add_fact(key, value)
-            updates.append((key, value))
-            break
-    
-    for pattern, key in hobby_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            value = match.group(1).capitalize()
-            memory.add_fact(key, value)
-            updates.append((key, value))
-            break
-    
-    for pattern, key in location_patterns:
-        match = re.search(pattern, lower)
-        if match:
-            value = match.group(1).capitalize()
-            memory.add_fact(key, value)
-            updates.append((key, value))
-            break
-    
-    return updates
+    return stored
 
-def generate_response(prompt, memory):
+def generate_intelligent_response(prompt, memory):
     lower = prompt.lower()
     facts = memory.get_all_facts()
     
-    # Question patterns with direct answers
-    if "what is my name" in lower or "what's my name" in lower or "do you know my name" in lower:
+    # ========== QUESTION HANDLING ==========
+    
+    # Name questions
+    if re.search(r"what('s| is) my name|do you know my name|my name", lower):
         name = memory.get_fact("Name")
-        return f"Your name is {name}." if name else "I don't know your name yet. Tell me: 'My name is [name]'"
+        if name:
+            return f"Your name is {name}."
+        return "I don't know your name yet. Please tell me: 'My name is [your name]'"
     
-    if "what is my job" in lower or "what's my job" in lower or "what do i do" in lower:
+    # Job questions
+    if re.search(r"what('s| is) my job|what do i do for work|what do i do|my job", lower):
         job = memory.get_fact("Job")
-        return f"You work as {job}." if job else "I don't know your job yet. Tell me: 'I work as [job]'"
+        if job:
+            return f"You work as a {job}."
+        return "I don't know your job yet. Please tell me: 'I work as [your job]'"
     
-    if "what is my hobby" in lower or "what's my hobby" in lower or "what do i like" in lower:
+    # Hobby questions
+    if re.search(r"what('s| is) my hobby|what do i like|what do i enjoy|my hobby|what am i into", lower):
         hobby = memory.get_fact("Hobby")
-        return f"You enjoy {hobby}." if hobby else "I don't know your hobbies yet. Tell me: 'I like [hobby]'"
+        if hobby:
+            return f"You enjoy {hobby}."
+        return "I don't know your hobbies yet. Please tell me: 'I like [your hobby]'"
     
-    if "where do i live" in lower or "where am i from" in lower:
+    # Location questions
+    if re.search(r"where do i live|where am i from|my location|where('s| is) my home", lower):
         location = memory.get_fact("Location")
-        return f"You live in {location}." if location else "I don't know where you live. Tell me: 'I live in [city]'"
+        if location:
+            return f"You live in {location}."
+        return "I don't know where you live. Please tell me: 'I live in [city]'"
     
-    if "what do you know about me" in lower or "what do you remember about me" in lower:
+    # General recall
+    if re.search(r"what do you (know|remember) about me|what do you know|what do you remember|tell me about me", lower):
         if facts:
-            fact_list = ", ".join([f"{k}: {v}" for k, v in facts.items()])
-            return f"I remember: {fact_list}"
-        return "I don't know anything about you yet. Tell me your name, job, or hobbies."
+            fact_list = []
+            for key, value in facts.items():
+                if key == "Name":
+                    fact_list.append(f"your name is {value}")
+                elif key == "Job":
+                    fact_list.append(f"you work as a {value}")
+                elif key == "Hobby":
+                    fact_list.append(f"you enjoy {value}")
+                elif key == "Location":
+                    fact_list.append(f"you live in {value}")
+            
+            if fact_list:
+                return f"I know that {', '.join(fact_list)}."
+            else:
+                return "I have some information about you. Ask me specifically about your name, job, hobby, or location."
+        return "I don't know anything about you yet. Tell me about yourself."
     
-    # Statement patterns - confirm and store
-    if "my name is" in lower:
-        return "I'll remember your name."
+    # ========== STATEMENT HANDLING ==========
     
-    if "work as" in lower or "my job is" in lower or "am a" in lower:
-        return "I'll remember your job."
+    # Name statement
+    if re.search(r"my name is|i am \w+|i'm \w+", lower) and not re.search(r"how are you", lower):
+        name_match = re.search(r"(?:my name is|i am|i'm) (\w+)", lower)
+        if name_match:
+            name = name_match.group(1).capitalize()
+            if len(name) >= 2 and name.lower() not in ["i", "me", "my", "a", "fine", "good", "ok"]:
+                memory.add_fact("Name", name)
+                return f"I'll remember that your name is {name}."
     
-    if "like" in lower or "love" in lower or "enjoy" in lower:
-        return "I'll remember that."
+    # Job statement
+    if re.search(r"i work as|my job is|i am a|i'm a", lower):
+        job_match = re.search(r"(?:i work as|my job is|i am a|i'm a) (\w+)", lower)
+        if job_match:
+            job = job_match.group(1).capitalize()
+            if len(job) >= 2:
+                memory.add_fact("Job", job)
+                return f"I'll remember that you work as a {job}."
     
-    if "live in" in lower or "am from" in lower:
-        return "I'll remember your location."
+    # Hobby statement
+    if re.search(r"i (?:like|love|enjoy)", lower):
+        hobby_match = re.search(r"i (?:like|love|enjoy) (\w+)", lower)
+        if hobby_match:
+            hobby = hobby_match.group(1).capitalize()
+            if len(hobby) >= 2:
+                memory.add_fact("Hobby", hobby)
+                return f"I'll remember that you enjoy {hobby}."
+    
+    # Location statement
+    if re.search(r"i live in|i am from", lower):
+        location_match = re.search(r"(?:i live in|i am from) (\w+)", lower)
+        if location_match:
+            location = location_match.group(1).capitalize()
+            if len(location) >= 2:
+                memory.add_fact("Location", location)
+                return f"I'll remember that you live in {location}."
+    
+    # ========== GENERAL CONVERSATION ==========
     
     # Greetings
-    if any(g in lower for g in ["hello", "hi", "hey", "greetings"]):
+    if re.search(r"^(hello|hi|hey|greetings|sup|yo)", lower):
         name = memory.get_fact("Name")
-        return f"Hello {name}." if name else "Hello."
+        if name:
+            return f"Hello {name}. How can I help you today?"
+        return "Hello. How can I help you today?"
     
-    if "how are you" in lower:
-        return "I'm functioning well. How can I help?"
+    # How are you
+    if re.search(r"how are you|how's it going|how do you do", lower):
+        return "I'm functioning well. What would you like to know?"
     
-    if "thank" in lower:
+    # Thanks
+    if re.search(r"thank|thanks|appreciate", lower):
         return "You're welcome."
     
-    if "bye" in lower or "goodbye" in lower:
-        return "Goodbye."
+    # Goodbye
+    if re.search(r"bye|goodbye|see you|exit|quit", lower):
+        return "Goodbye. Feel free to return anytime."
     
-    if "help" in lower or "what can you do" in lower:
-        return """Commands:
-- Tell me: "My name is X", "I work as X", "I like X", "I live in X"
-- Ask: "What's my name?", "What do you know about me?" """
-    
-    # Default response - short and useful
-    if facts:
-        return "I've noted that. Anything else you'd like me to remember?"
-    else:
-        return "Tell me about yourself - your name, job, or hobbies. I'll remember it."
+    # Help
+    if re.search(r"help|what can you do|commands|how do i use this", lower):
+        return """**Commands:**
 
-if prompt := st.chat_input("Type your message..."):
+**Tell me:**
+• "My name is [name]"
+• "I work as [job]"  
+• "I like [hobby]"
+• "I live in [city]"
+
+**Ask me:**
+• "What is my name?"
+• "What do I do?"
+• "What do I like?"
+• "Where do I live?"
+• "What do you know about me?"
+
+**Example:** "My name is John. I work as a doctor. I like photography." """
+    
+    # Default response when no pattern matches
+    if facts:
+        return "I've noted that. Is there anything specific you'd like me to remember or answer?"
+    else:
+        return "Tell me about yourself. For example: 'My name is John', 'I work as a doctor', or 'I like photography'. I'll remember everything you share."
+
+if prompt := st.chat_input("Type your message here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
     with st.chat_message("assistant"):
-        response = generate_response(prompt, st.session_state.memory)
+        # Extract and store facts silently
+        new_facts = extract_and_store_facts(prompt, st.session_state.memory)
+        
+        # Generate response
+        response = generate_intelligent_response(prompt, st.session_state.memory)
         st.markdown(response)
         
-        new_facts = extract_facts(prompt, st.session_state.memory)
-        if new_facts:
-            for key, value in new_facts:
-                st.success(f"✓ Remembered {key.lower()}: {value}")
+        # Show confirmation for new facts
+        for key, value in new_facts:
+            st.success(f"✓ Remembered: {key} → {value}")
     
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
