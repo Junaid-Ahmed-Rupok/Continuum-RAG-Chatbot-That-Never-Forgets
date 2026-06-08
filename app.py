@@ -1,16 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                              CONTINUUM RAG - PROFESSIONAL EDITION                     ║
-║                         Persistent Memory Chatbot · No API Keys · Free                 ║
-║                                                                                       ║
-║  Senior Developer & Designer Implementation                                          ║
-║  - Production-grade code with error handling, logging, and performance optimization  ║
-║  - Enterprise UI/UX with dark theme, animations, and responsive design               ║
-║  - Memory system with Ebbinghaus decay, reinforcement learning, and export features  ║
-║                                                                                       ║
-╚══════════════════════════════════════════════════════════════════════════════════════╝
-"""
-
 import streamlit as st
 import time
 import json
@@ -31,7 +18,6 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
-from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ============================================================================
 # LOGGING CONFIGURATION
@@ -133,10 +119,6 @@ CUSTOM_CSS = """
         border-right: 1px solid rgba(124, 58, 237, 0.2);
     }
     
-    [data-testid="stSidebar"] .stMarkdown {
-        color: var(--text);
-    }
-    
     /* ========== HEADER ========== */
     .continuum-header {
         background: linear-gradient(135deg, var(--primary-dark), var(--primary));
@@ -153,7 +135,6 @@ CUSTOM_CSS = """
         margin: 0;
         font-size: 2.2rem;
         font-weight: 700;
-        letter-spacing: -0.01em;
     }
     
     .continuum-header p {
@@ -215,15 +196,6 @@ CUSTOM_CSS = """
         box-shadow: 0 5px 15px rgba(124, 58, 237, 0.3);
     }
     
-    .stButton button:active {
-        transform: translateY(0);
-    }
-    
-    /* Danger buttons */
-    .stButton button[kind="secondary"] {
-        background: linear-gradient(135deg, #dc2626, #b91c1c);
-    }
-    
     /* ========== METRICS ========== */
     [data-testid="stMetric"] {
         background: var(--surface);
@@ -247,50 +219,15 @@ CUSTOM_CSS = """
         font-weight: bold;
     }
     
-    /* ========== EXPANDER ========== */
-    .streamlit-expanderHeader {
-        background: var(--surface);
-        border-radius: 0.5rem;
-        color: var(--text);
-        font-weight: 500;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        background: var(--surface-hover);
-    }
-    
-    /* ========== PROGRESS BAR ========== */
-    .stProgress > div > div > div > div {
-        background-color: var(--primary);
-    }
-    
-    /* ========== STATUS & ALERTS ========== */
-    .stAlert {
-        border-radius: 0.5rem;
-        border-left: 4px solid var(--primary);
-    }
-    
     /* ========== ANIMATIONS ========== */
     @keyframes fadeInDown {
-        from {
-            opacity: 0;
-            transform: translateY(-20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
     }
     
     @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
     }
     
     @keyframes pulse {
@@ -319,34 +256,6 @@ CUSTOM_CSS = """
     .typing-dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-dot:nth-child(3) { animation-delay: 0.4s; }
     
-    /* ========== MEMORY CARD ========== */
-    .memory-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 0.75rem;
-        padding: 0.75rem;
-        margin-bottom: 0.5rem;
-        transition: all 0.2s ease;
-    }
-    
-    .memory-card:hover {
-        border-color: var(--primary);
-        transform: translateX(4px);
-    }
-    
-    .memory-strength-bar {
-        height: 4px;
-        border-radius: 2px;
-        margin-top: 0.5rem;
-        transition: width 0.3s ease;
-    }
-    
-    /* ========== DIVIDER ========== */
-    hr {
-        border-color: var(--border);
-        margin: 1rem 0;
-    }
-    
     /* ========== SCROLLBAR ========== */
     ::-webkit-scrollbar {
         width: 8px;
@@ -370,19 +279,6 @@ CUSTOM_CSS = """
     /* ========== HIDE BRANDING ========== */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* ========== STATUS BADGES ========== */
-    .badge {
-        display: inline-block;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
-        font-size: 0.7rem;
-        font-weight: 500;
-    }
-    
-    .badge-success { background: var(--success); color: white; }
-    .badge-warning { background: var(--warning); color: black; }
-    .badge-info { background: var(--info); color: white; }
     
     /* ========== RESPONSIVE ========== */
     @media (max-width: 768px) {
@@ -437,13 +333,7 @@ class MemoryEntry:
 # ============================================================================
 
 class ContinuumMemory:
-    """
-    Professional-grade memory system with:
-    - Vector-based semantic search
-    - Ebbinghaus forgetting curve
-    - Reinforcement learning on access
-    - Metadata enrichment
-    """
+    """Professional-grade memory system with vector-based semantic search and Ebbinghaus forgetting curve"""
     
     def __init__(self):
         self.config = CONFIG
@@ -532,7 +422,6 @@ class ContinuumMemory:
         memory_id = self._generate_id(text)
         embedding = self.embedder.encode(text).tolist()
         
-        # Create metadata
         now = time.time()
         metadata = {
             "timestamp": now,
@@ -541,7 +430,6 @@ class ContinuumMemory:
             "access_count": 0
         }
         
-        # Add to ChromaDB
         try:
             self.collection.add(
                 ids=[memory_id],
@@ -550,7 +438,6 @@ class ContinuumMemory:
                 metadatas=[metadata]
             )
             
-            # Create memory entry
             entry = MemoryEntry(
                 id=memory_id,
                 text=text,
@@ -602,7 +489,6 @@ class ContinuumMemory:
             strength = float(meta.get("strength", 0.0))
             
             if strength >= self.config.min_strength:
-                # Update access metrics
                 if mem_id in self.memories:
                     self.memories[mem_id].last_accessed = time.time()
                     self.memories[mem_id].access_count += 1
@@ -629,7 +515,6 @@ class ContinuumMemory:
             new_strength = entry.strength * decay_factor
             
             if new_strength < self.config.min_strength:
-                # Prune weak memory
                 try:
                     self.collection.delete(ids=[mem_id])
                     del self.memories[mem_id]
@@ -745,7 +630,6 @@ class ResponseGenerator:
     def generate(self, query: str, memories: List[MemoryEntry]) -> str:
         """Generate response with context awareness"""
         try:
-            # Build context from memories
             context = ""
             if memories:
                 context_parts = ["I recall:"]
@@ -753,7 +637,6 @@ class ResponseGenerator:
                     context_parts.append(f"• {mem.text}")
                 context = "\n".join(context_parts) + "\n\n"
             
-            # Build prompt
             prompt = f"""{context}User question: {query}
 Answer concisely and helpfully, weaving in relevant memories naturally:"""
             
@@ -842,7 +725,6 @@ class UIComponents:
             
             stats = memory.get_statistics()
             
-            # Metric cards
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Total Memories", stats["total"], delta=None)
@@ -851,7 +733,6 @@ class UIComponents:
                 st.metric("Avg Strength", f"{stats['avg_strength']:.2f}")
                 st.metric("Total Accesses", stats["total_accesses"])
             
-            # Strength distribution
             if stats["total"] > 0:
                 st.markdown("---")
                 st.markdown("#### Memory Strength")
@@ -866,7 +747,6 @@ class UIComponents:
                         st.markdown(f"<small>{label}: {count}</small>", unsafe_allow_html=True)
                         st.progress(pct / 100)
             
-            # Top memories
             st.markdown("---")
             st.markdown("#### 🔥 Strongest Memories")
             top_memories = memory.get_top_memories(5)
@@ -886,8 +766,6 @@ class UIComponents:
                 st.caption("*No memories yet. Start chatting!*")
             
             st.markdown("---")
-            
-            # Actions
             st.markdown("#### ⚡ Actions")
             export_clicked = st.button("💾 Export Memories", use_container_width=True)
             reset_clicked = st.button("🗑️ Reset All Memory", use_container_width=True, type="secondary")
@@ -929,21 +807,12 @@ class MessageProcessor:
     
     def process(self, message: str) -> Tuple[str, List[MemoryEntry]]:
         """Process user message through the pipeline"""
-        
-        # Apply memory decay
         self.memory.apply_decay()
-        
-        # Retrieve relevant memories
         memories = self.memory.retrieve(message)
-        
-        # Generate response
         response = self.generator.generate(message, memories)
-        
-        # Extract and store facts
         facts = FactExtractor.extract(message, response)
         for fact in facts:
             self.memory.add(fact, source="extracted")
-        
         return response, memories
 
 # ============================================================================
@@ -962,16 +831,10 @@ def initialize_session():
 def main():
     """Main application entry point"""
     
-    # Initialize
     initialize_session()
-    
-    # Render header
     UIComponents.render_header()
-    
-    # Render sidebar and get actions
     actions = UIComponents.render_sidebar(st.session_state.memory)
     
-    # Handle actions
     if actions["reset"]:
         with st.spinner("Resetting memory system..."):
             st.session_state.memory.reset()
@@ -999,10 +862,8 @@ def main():
         except Exception as e:
             st.error(f"Export failed: {e}")
     
-    # Chat container
     st.markdown("### 💬 Conversation")
     
-    # Welcome message
     if not st.session_state.messages:
         with st.chat_message("assistant", avatar="🧠"):
             st.markdown("""
@@ -1015,34 +876,24 @@ def main():
             Then ask me *"What do you know about me?"* — I'll remember! ✨
             """)
     
-    # Display chat history
     for msg in st.session_state.messages:
         avatar = "👤" if msg["role"] == "user" else "🧠"
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
     
-    # Chat input
     if prompt := st.chat_input("Type your message here..."):
-        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
         
-        # Generate response
         with st.chat_message("assistant", avatar="🧠"):
             placeholder = st.empty()
-            
-            # Show typing indicator
             with placeholder:
                 UIComponents.render_typing_indicator()
             
-            # Process message
             response, memories = st.session_state.processor.process(prompt)
-            
-            # Clear indicator and show response
             placeholder.empty()
             
-            # Show retrieved memories in expander
             if memories:
                 with st.expander(f"🔍 Retrieved {len(memories)} relevant memories", expanded=False):
                     for mem in memories:
@@ -1059,17 +910,13 @@ def main():
             
             st.markdown(response)
             
-            # Show fact extraction notification
             facts = FactExtractor.extract(prompt, response)
             if facts:
                 with st.status(f"📝 Learned {len(facts)} new fact(s)", expanded=False):
                     for fact in facts:
                         st.write(f"• {fact}")
         
-        # Add assistant message
         st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        # Rerun to update UI
         st.rerun()
 
 if __name__ == "__main__":
