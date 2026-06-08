@@ -3,6 +3,7 @@ import time
 import hashlib
 import json
 import re
+import math
 from pathlib import Path
 from datetime import datetime
 
@@ -61,15 +62,6 @@ st.markdown("""
         border-radius: 0.75rem;
     }
     
-    [data-testid="stMetric"] label {
-        color: #a1a1b0;
-    }
-    
-    [data-testid="stMetric"] value {
-        color: #a78bfa;
-        font-weight: bold;
-    }
-    
     .stButton button {
         background: linear-gradient(135deg, #6d28d9, #7c3aed);
         color: white;
@@ -78,20 +70,8 @@ st.markdown("""
         cursor: pointer;
     }
     
-    .stButton button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(124,58,237,0.3);
-    }
-    
     .stCaption {
         color: #a1a1b0;
-    }
-    
-    .stSuccess {
-        background: #22c55e20;
-        border-left: 3px solid #22c55e;
-        padding: 0.5rem;
-        border-radius: 0.5rem;
     }
     
     #MainMenu {visibility: hidden;}
@@ -102,7 +82,7 @@ st.markdown("""
 st.markdown("""
 <div class="header">
     <h1>📚 Continuum Teacher</h1>
-    <p>Your Personal AI Teacher · Knowledgeable · No API Keys · Free Forever</p>
+    <p>Your Personal AI Teacher · Answers Questions · No API Keys · Free Forever</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -110,233 +90,191 @@ st.markdown("""
 # COMPREHENSIVE KNOWLEDGE BASE
 # ============================================================================
 
-class KnowledgeBase:
-    """Extensive subject knowledge across multiple domains"""
-    
-    @staticmethod
-    def get_answer(topic, subtopic=None):
-        kb = {
-            # ========== BANGLADESH ==========
-            "bangladesh": {
-                "capital": "Dhaka is the capital of Bangladesh. It is one of the most densely populated cities in the world.",
-                "population": "Bangladesh has approximately 170 million people, making it the 8th most populous country in the world.",
-                "language": "Bengali (Bangla) is the official language of Bangladesh. It is spoken by over 98% of the population.",
-                "currency": "Bangladeshi Taka (BDT) is the currency. 1 Taka = 100 poisha.",
-                "independence": "Bangladesh gained independence from Pakistan on December 16, 1971 after a 9-month liberation war.",
-                "river": "Bangladesh is called the 'Land of Rivers' with over 700 rivers, including the Ganges (Padma), Brahmaputra (Jamuna), and Meghna.",
-                "food": "Popular foods include: Hilsa fish (national fish), Biryani, Panta Bhat, Roshogolla, and Chotpoti.",
-                "sport": "Cricket is the most popular sport. The national cricket team is known as the Tigers.",
-                "history": "Bangladesh was historically part of ancient Bengal, then British India, then East Pakistan, and became independent in 1971.",
-                "economy": "Bangladesh has a growing economy driven by the ready-made garment (RMG) industry, remittances, and agriculture.",
-                "sundarbans": "The Sundarbans is the largest mangrove forest in the world, home to the Royal Bengal Tiger.",
-                "cox_bazar": "Cox's Bazar is the longest natural sea beach in the world, stretching 120 km.",
-                "default": "Bangladesh is a South Asian country known for its rich culture, rivers, and the Sundarbans. What specific aspect would you like to learn about?"
-            },
-            
-            # ========== MATHEMATICS ==========
-            "math": {
-                "pi": "Pi (π) is approximately 3.14159. It is the ratio of a circle's circumference to its diameter.",
-                "pythagoras": "The Pythagorean theorem: a² + b² = c², where c is the hypotenuse of a right triangle.",
-                "algebra": "Algebra uses letters to represent unknown numbers. Example: x + 5 = 10 → x = 5",
-                "calculus": "Calculus is the study of change. It has two branches: Differential (rates of change) and Integral (accumulation).",
-                "statistics": "Statistics is the science of collecting, analyzing, and interpreting data.",
-                "default": "I can teach you about algebra, geometry, calculus, statistics, or specific formulas. What would you like to learn?"
-            },
-            
-            # ========== SCIENCE ==========
-            "science": {
-                "physics": "Physics studies matter, energy, and their interactions. Branches include mechanics, thermodynamics, electromagnetism, and quantum physics.",
-                "chemistry": "Chemistry studies matter, its properties, how substances combine and change. Key areas: organic, inorganic, physical, and analytical chemistry.",
-                "biology": "Biology studies living organisms. Major branches: botany (plants), zoology (animals), microbiology (microorganisms), genetics, and ecology.",
-                "gravity": "Gravity is a force that attracts objects with mass. On Earth, acceleration due to gravity is 9.8 m/s².",
-                "photosynthesis": "Photosynthesis is how plants make food: 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂ (carbon dioxide + water → glucose + oxygen).",
-                "dna": "DNA (deoxyribonucleic acid) contains genetic instructions. It has a double helix structure discovered by Watson and Crick.",
-                "default": "I can teach physics, chemistry, biology, or specific topics like gravity, photosynthesis, or DNA. What interests you?"
-            },
-            
-            # ========== HISTORY ==========
-            "history": {
-                "world_war_1": "World War I (1914-1918) was a global war centered in Europe. It started after the assassination of Archduke Franz Ferdinand.",
-                "world_war_2": "World War II (1939-1945) involved most of the world. Key events: Holocaust, atomic bombs on Hiroshima and Nagasaki.",
-                "french_revolution": "The French Revolution (1789-1799) overthrew the monarchy and established a republic. 'Liberty, Equality, Fraternity'.",
-                "industrial_revolution": "The Industrial Revolution (1760-1840) transformed manufacturing with machines, steam power, and factories.",
-                "default": "I can teach about world wars, revolutions, ancient civilizations, or specific historical periods. What would you like to learn?"
-            },
-            
-            # ========== GEOGRAPHY ==========
-            "geography": {
-                "continents": "The seven continents are: Asia, Africa, North America, South America, Antarctica, Europe, and Australia.",
-                "oceans": "The five oceans are: Pacific (largest), Atlantic, Indian, Southern, and Arctic (smallest).",
-                "mount_everest": "Mount Everest is the highest mountain at 8,848 meters (29,029 feet), located in Nepal/Tibet.",
-                "amazon": "The Amazon River is the longest (7,062 km). The Amazon Rainforest is the largest tropical rainforest.",
-                "default": "I can teach about continents, oceans, mountains, rivers, countries, or capitals. What would you like to learn?"
-            },
-            
-            # ========== COMPUTER SCIENCE ==========
-            "computers": {
-                "python": "Python is a high-level programming language known for readability. Created by Guido van Rossum in 1991.",
-                "ai": "Artificial Intelligence (AI) simulates human intelligence in machines. Subfields include machine learning, deep learning, and NLP.",
-                "machine_learning": "Machine Learning enables computers to learn from data without explicit programming. Types: supervised, unsupervised, reinforcement.",
-                "algorithm": "An algorithm is a step-by-step procedure for solving a problem. Examples: sorting, searching, pathfinding.",
-                "default": "I can teach programming, AI, algorithms, data structures, or computer history. What interests you?"
-            },
-            
-            # ========== LITERATURE ==========
-            "literature": {
-                "shakespeare": "William Shakespeare (1564-1616) wrote 37 plays and 154 sonnets. Famous works: Hamlet, Romeo and Juliet, Macbeth.",
-                "poetry": "Poetry uses aesthetic and rhythmic qualities of language. Types: sonnet, haiku, free verse, epic, lyric.",
-                "novel": "A novel is a long fictional narrative. The first novel is often considered 'Don Quixote' by Cervantes (1605).",
-                "default": "I can teach about Shakespeare, poetry, novels, famous authors, or literary devices. What would you like to learn?"
-            },
-            
-            # ========== PHILOSOPHY ==========
-            "philosophy": {
-                "socrates": "Socrates (470-399 BCE) was a Greek philosopher known for the Socratic method of questioning.",
-                "plato": "Plato (428-348 BCE) founded the Academy in Athens. Wrote 'The Republic' about justice and ideal society.",
-                "aristotle": "Aristotle (384-322 BCE) studied logic, ethics, politics, and biology. Tutored Alexander the Great.",
-                "default": "I can teach about Socrates, Plato, Aristotle, Stoicism, Existentialism, or major philosophical ideas."
-            }
-        }
-        
-        for domain, content in kb.items():
-            if domain in topic.lower():
-                if subtopic and subtopic in content:
-                    return content[subtopic]
-                return content.get("default", f"I can teach you about {domain}. What specific aspect would you like to know?")
-        return None
-
-# ============================================================================
-# TEACHER BOT
-# ============================================================================
-
 class TeacherBot:
     def __init__(self):
-        self.kb = KnowledgeBase()
-        self.conversation_context = []
+        pass
     
-    def teach(self, user_query):
-        query_lower = user_query.lower()
+    def teach(self, query):
+        lower = query.lower().strip()
         
-        # Subject detection
-        subjects = {
-            "bangladesh": ["bangladesh", "dhaka", "sundarbans", "cox", "bay of bengal", "padma", "meghna"],
-            "math": ["math", "algebra", "geometry", "calculus", "statistics", "pi", "pythagoras"],
-            "science": ["science", "physics", "chemistry", "biology", "gravity", "photosynthesis", "dna"],
-            "history": ["history", "world war", "revolution", "industrial", "ancient", "medieval"],
-            "geography": ["geography", "continent", "ocean", "mountain", "river", "country", "capital"],
-            "computers": ["computer", "programming", "python", "ai", "algorithm", "machine learning"],
-            "literature": ["literature", "shakespeare", "poetry", "novel", "author", "book"],
-            "philosophy": ["philosophy", "socrates", "plato", "aristotle", "stoic", "existential"]
-        }
+        # ========== MATH PROBLEMS ==========
         
-        detected_subject = None
-        detected_keyword = None
+        # Basic arithmetic
+        if re.search(r"\d+\s*\+\s*\d+", lower):
+            numbers = re.findall(r"\d+", lower)
+            if len(numbers) >= 2:
+                result = sum(int(n) for n in numbers[:2])
+                return f"{numbers[0]} + {numbers[1]} = {result}"
         
-        for subject, keywords in subjects.items():
-            for keyword in keywords:
-                if keyword in query_lower:
-                    detected_subject = subject
-                    detected_keyword = keyword
-                    break
-            if detected_subject:
-                break
+        if re.search(r"\d+\s*\-\s*\d+", lower):
+            numbers = re.findall(r"\d+", lower)
+            if len(numbers) >= 2:
+                result = int(numbers[0]) - int(numbers[1])
+                return f"{numbers[0]} - {numbers[1]} = {result}"
         
-        # Special patterns
-        if "who is" in query_lower or "what is" in query_lower or "tell me about" in query_lower:
-            # Extract the topic
-            patterns = [r"who is (\w+)", r"what is (\w+)", r"tell me about (\w+)"]
-            for pattern in patterns:
-                match = re.search(pattern, query_lower)
-                if match:
-                    topic = match.group(1)
-                    answer = self.kb.get_answer(topic, topic)
-                    if answer:
-                        return answer
+        if re.search(r"\d+\s*\*\s*\d+|\d+\s*x\s*\d+", lower):
+            numbers = re.findall(r"\d+", lower)
+            if len(numbers) >= 2:
+                result = int(numbers[0]) * int(numbers[1])
+                return f"{numbers[0]} × {numbers[1]} = {result}"
         
-        # Subject-based teaching
-        if detected_subject:
-            # Extract specific subtopic if any
-            words = query_lower.split()
-            for word in words:
-                answer = self.kb.get_answer(detected_subject, word)
-                if answer and word not in detected_keyword:
-                    return answer
-            return self.kb.get_answer(detected_subject, "default")
+        if re.search(r"\d+\s*/\s*\d+", lower):
+            numbers = re.findall(r"\d+", lower)
+            if len(numbers) >= 2:
+                result = int(numbers[0]) / int(numbers[1])
+                return f"{numbers[0]} ÷ {numbers[1]} = {result:.2f}"
         
-        # Question patterns
-        if query_lower.startswith(("what", "why", "how", "when", "where", "who", "which")):
-            return self._handle_general_question(query_lower)
+        # ========== SPECIFIC MATH QUESTIONS ==========
         
-        # Greetings
-        if any(g in query_lower for g in ["hello", "hi", "hey", "greetings"]):
-            return "Hello! I'm your teacher. What subject would you like to learn today? I can teach Math, Science, History, Geography, Computer Science, Literature, Philosophy, and more!"
+        if "square root" in lower or "sqrt" in lower:
+            numbers = re.findall(r"\d+", lower)
+            if numbers:
+                result = math.sqrt(int(numbers[0]))
+                return f"The square root of {numbers[0]} is approximately {result:.4f}"
+            return "The square root of a number x is a value that when multiplied by itself gives x. For example, √16 = 4."
         
-        # How are you
-        if "how are you" in query_lower:
+        if "power" in lower or "square" in lower or "cube" in lower:
+            numbers = re.findall(r"\d+", lower)
+            if "square" in lower and numbers:
+                result = int(numbers[0]) ** 2
+                return f"{numbers[0]} squared = {result}"
+            if "cube" in lower and numbers:
+                result = int(numbers[0]) ** 3
+                return f"{numbers[0]} cubed = {result}"
+            if len(numbers) >= 2:
+                result = int(numbers[0]) ** int(numbers[1])
+                return f"{numbers[0]} to the power of {numbers[1]} = {result}"
+        
+        if "percentage" in lower:
+            numbers = re.findall(r"\d+", lower)
+            if len(numbers) >= 2:
+                result = (int(numbers[0]) / int(numbers[1])) * 100
+                return f"{numbers[0]} is {result:.2f}% of {numbers[1]}"
+            return "Percentage = (Part / Whole) × 100. Example: What is 20% of 50? (20/100) × 50 = 10"
+        
+        # ========== GENERAL KNOWLEDGE ==========
+        
+        # Bangladesh
+        if "bangladesh" in lower:
+            if "capital" in lower:
+                return "Dhaka is the capital of Bangladesh."
+            if "population" in lower:
+                return "Bangladesh has approximately 170 million people."
+            if "language" in lower:
+                return "Bengali (Bangla) is the official language of Bangladesh."
+            if "currency" in lower:
+                return "Bangladeshi Taka (BDT) is the currency."
+            if "river" in lower:
+                return "Bangladesh has over 700 rivers including the Padma (Ganges), Jamuna (Brahmaputra), and Meghna."
+            if "food" in lower:
+                return "Popular Bangladeshi foods include Hilsa fish, Biryani, Panta Bhat, and Roshogolla."
+            if "sundarbans" in lower:
+                return "The Sundarbans is the largest mangrove forest in the world, home to the Royal Bengal Tiger."
+            if "cox" in lower:
+                return "Cox's Bazar is the longest natural sea beach in the world, stretching 120 km."
+            if "independence" in lower:
+                return "Bangladesh gained independence from Pakistan on December 16, 1971."
+            return "Bangladesh is a South Asian country. Ask me about its capital, population, language, rivers, food, or the Sundarbans."
+        
+        # Science
+        if "gravity" in lower:
+            return "Gravity is a force that attracts objects with mass. On Earth, acceleration due to gravity is 9.8 m/s². Sir Isaac Newton discovered gravity."
+        
+        if "photosynthesis" in lower:
+            return "Photosynthesis is how plants make food: 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂ (Carbon dioxide + Water → Glucose + Oxygen)."
+        
+        if "dna" in lower:
+            return "DNA (Deoxyribonucleic Acid) contains genetic instructions. It has a double helix structure discovered by Watson and Crick in 1953."
+        
+        if "python" in lower and "programming" or "language" in lower:
+            return "Python is a high-level programming language created by Guido van Rossum in 1991. It's known for readability and simplicity."
+        
+        if "ai" in lower or "artificial intelligence" in lower:
+            return "Artificial Intelligence (AI) simulates human intelligence in machines. Subfields include machine learning, deep learning, and natural language processing."
+        
+        # History
+        if "shakespeare" in lower:
+            return "William Shakespeare (1564-1616) was an English playwright and poet. Famous works: Hamlet, Romeo and Juliet, Macbeth."
+        
+        if "world war" in lower:
+            if "1" in lower or "one" in lower or "first" in lower:
+                return "World War I (1914-1918) was a global war centered in Europe. It started after the assassination of Archduke Franz Ferdinand."
+            if "2" in lower or "two" in lower or "second" in lower:
+                return "World War II (1939-1945) involved most world nations. The Allies (US, UK, USSR) defeated the Axis (Germany, Italy, Japan)."
+            return "World War I (1914-1918) and World War II (1939-1945) were major global conflicts. Which one would you like to learn about?"
+        
+        # Math concepts
+        if "pythagoras" in lower or "pythagorean" in lower:
+            return "The Pythagorean theorem: a² + b² = c², where c is the hypotenuse of a right triangle."
+        
+        if "pi" in lower:
+            return "Pi (π) is approximately 3.14159. It is the ratio of a circle's circumference to its diameter."
+        
+        # ========== CALCULATIONS ==========
+        
+        if re.search(r"\d+", lower) and ("calculate" in lower or "what is" in lower):
+            numbers = re.findall(r"\d+", lower)
+            if numbers:
+                if "plus" in lower or "+" in lower:
+                    return f"{numbers[0]} + {numbers[1]} = {int(numbers[0]) + int(numbers[1])}" if len(numbers) >= 2 else f"The number is {numbers[0]}."
+                if "minus" in lower or "-" in lower:
+                    return f"{numbers[0]} - {numbers[1]} = {int(numbers[0]) - int(numbers[1])}" if len(numbers) >= 2 else f"The number is {numbers[0]}."
+                if "times" in lower or "multiply" in lower or "*" in lower or "x" in lower:
+                    return f"{numbers[0]} × {numbers[1]} = {int(numbers[0]) * int(numbers[1])}" if len(numbers) >= 2 else f"The number is {numbers[0]}."
+                if "divide" in lower or "divided by" in lower or "/" in lower:
+                    return f"{numbers[0]} ÷ {numbers[1]} = {int(numbers[0]) / int(numbers[1]):.2f}" if len(numbers) >= 2 else f"The number is {numbers[0]}."
+        
+        # ========== GREETINGS ==========
+        
+        if any(g in lower for g in ["hello", "hi", "hey", "greetings"]):
+            return "Hello! I'm your teacher. Ask me any question - math problems, science facts, history, or anything you want to learn!"
+        
+        if "how are you" in lower:
             return "I'm ready to teach! What would you like to learn today?"
         
-        # Thanks
-        if "thank" in query_lower:
-            return "You're welcome! Keep learning. Is there anything else I can teach you?"
+        if "thank" in lower:
+            return "You're welcome! Keep learning. Ask me anything else."
         
-        # Help
-        if "help" in query_lower or "what can you teach" in query_lower:
-            return self._get_help()
+        # ========== HELP ==========
         
-        # Default - offer to teach
-        return "I'm your teacher. You can ask me about: Bangladesh, Math, Science, History, Geography, Computer Science, Literature, or Philosophy. What would you like to learn?"
-    
-    def _handle_general_question(self, query):
-        # Try to extract subject from question
-        subjects = ["bangladesh", "math", "science", "history", "geography", "computer", "philosophy", "literature"]
-        for subject in subjects:
-            if subject in query:
-                return self.kb.get_answer(subject, "default")
-        
-        # Try specific keywords
-        keywords = ["capital", "population", "river", "ocean", "mountain", "gravity", "photosynthesis", "dna", "python", "ai", "algorithm"]
-        for keyword in keywords:
-            if keyword in query:
-                for subject in subjects:
-                    answer = self.kb.get_answer(subject, keyword)
-                    if answer:
-                        return answer
-        
-        return "That's a great question! Could you tell me which subject you're asking about? I can teach Math, Science, History, Geography, and more."
-    
-    def _get_help(self):
-        return """**📚 Continuum Teacher - Subjects I Can Teach**
+        if "help" in lower or "what can you do" in lower or "what can you teach" in lower:
+            return """**📚 What I Can Teach You:**
 
-**🇧🇩 Bangladesh Studies**
-• History, Independence, Capital, Population, Language, Currency, Rivers, Food, Sports, Sundarbans, Cox's Bazar
+**Math:**
+• "2 + 2 = ?" → I'll solve it
+• "What is the square root of 16?"
+• "Calculate 20% of 50"
+• "Explain Pythagoras theorem"
 
-**🧮 Mathematics**
-• Algebra, Geometry, Calculus, Statistics, Pi, Pythagorean Theorem
-
-**🔬 Science**
-• Physics, Chemistry, Biology, Gravity, Photosynthesis, DNA, Evolution
-
-**📖 History**
-• World War I & II, French Revolution, Industrial Revolution, Ancient Civilizations
-
-**🌍 Geography**
-• Continents, Oceans, Mountains, Rivers, Countries, Capitals
-
-**💻 Computer Science**
-• Programming, Python, AI, Machine Learning, Algorithms
-
-**📚 Literature**
-• Shakespeare, Poetry, Novels, Famous Authors
-
-**🤔 Philosophy**
-• Socrates, Plato, Aristotle, Stoicism, Existentialism
-
-**Try asking:**
-• "Tell me about Bangladesh"
+**Bangladesh:**
 • "What is the capital of Bangladesh?"
-• "Teach me about gravity"
+• "Tell me about the Sundarbans"
+• "What is the population of Bangladesh?"
+
+**Science:**
+• "What is gravity?"
+• "Explain photosynthesis"
+• "What is DNA?"
+
+**History:**
 • "Who was Shakespeare?"
-• "What is Python programming?" """
+• "Tell me about World War II"
+• "When did Bangladesh gain independence?"
+
+**Programming:**
+• "What is Python?"
+• "Explain AI"
+
+**Just ask me anything! I'm here to teach.** """
+        
+        # ========== DEFAULT - ANSWER DIRECTLY ==========
+        
+        # If it's a simple question starting with question words
+        if lower.startswith(("what", "why", "how", "when", "where", "who", "which", "can", "could", "would")):
+            return "That's a good question. Could you be more specific? For example: 'What is the capital of Bangladesh?' or 'How does gravity work?'"
+        
+        # Final fallback
+        return "I'm your teacher. Ask me a math problem, a question about Bangladesh, science, history, or anything you want to learn!"
 
 # ============================================================================
 # MAIN APP
@@ -348,28 +286,25 @@ if "teacher" not in st.session_state:
 
 with st.sidebar:
     st.markdown("### 📚 Teacher Info")
-    st.markdown("I can teach you:")
-    st.markdown("• 🇧🇩 Bangladesh Studies")
-    st.markdown("• 🧮 Mathematics")
-    st.markdown("• 🔬 Science")
-    st.markdown("• 📖 History")
-    st.markdown("• 🌍 Geography")
-    st.markdown("• 💻 Computer Science")
-    st.markdown("• 📚 Literature")
-    st.markdown("• 🤔 Philosophy")
+    st.markdown("**I can answer:**")
+    st.markdown("• ✅ Math problems (2+2, √16, 20% of 50)")
+    st.markdown("• ✅ Bangladesh questions")
+    st.markdown("• ✅ Science facts")
+    st.markdown("• ✅ History questions")
+    st.markdown("• ✅ Programming concepts")
+    
+    st.markdown("---")
+    st.markdown("**Try these:**")
+    st.markdown("• `2 + 2 = ?`")
+    st.markdown("• `What is the capital of Bangladesh?`")
+    st.markdown("• `What is gravity?`")
+    st.markdown("• `Who was Shakespeare?`")
+    st.markdown("• `What is Python?`")
     
     st.markdown("---")
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
-    
-    st.markdown("---")
-    st.caption("💡 Try asking:")
-    st.caption("• 'Tell me about Bangladesh'")
-    st.caption("• 'What is the capital of Dhaka?'")
-    st.caption("• 'Teach me about gravity'")
-    st.caption("• 'Who was Shakespeare?'")
-    st.caption("• 'What is Python?'")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -379,19 +314,26 @@ if not st.session_state.messages:
     with st.chat_message("assistant", avatar="📚"):
         st.markdown("""Hello! I'm **Continuum Teacher**.
 
-I can teach you about:
-- **Bangladesh** (history, capital, culture, rivers, food)
-- **Mathematics** (algebra, geometry, calculus)
-- **Science** (physics, chemistry, biology)
-- **History** (world wars, revolutions)
-- **Geography** (continents, oceans, mountains)
-- **Computer Science** (programming, AI)
-- **Literature** (Shakespeare, poetry)
-- **Philosophy** (Socrates, Plato)
+**I can solve math problems like:**
+• 2 + 2 = ?
+• √16 = ?
+• 20% of 50 = ?
 
-**What would you like to learn today?** 📚""")
+**I can answer questions about:**
+• Bangladesh (capital, population, Sundarbans, history)
+• Science (gravity, photosynthesis, DNA)
+• History (Shakespeare, World Wars)
+• Programming (Python, AI)
 
-if prompt := st.chat_input("Ask me anything... I'm your teacher..."):
+**Try asking me:**
+• "What is 2 + 2?"
+• "What is the capital of Bangladesh?"
+• "What is gravity?"
+• "Who was Shakespeare?"
+
+**Ask me anything!** 📚""")
+
+if prompt := st.chat_input("Ask me a question... I'm your teacher..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
